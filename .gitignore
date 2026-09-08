@@ -1,5 +1,13 @@
+# Built Android and Gradle binaries
 *.iml
 .gradle
+.gradle/
+/build/
+/*/build/
+*.apk
+*.aab
+
+# Local Android SDK configuration (contains machine-specific paths)
 /local.properties
 /.idea/caches
 /.idea/libraries
@@ -13,3 +21,33 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+.agents
+# Android Studio & IntelliJ IDEA settings
+.idea/caches/
+.idea/libraries/
+.idea/modules.xml
+.idea/workspace.xml
+.idea/navEditor.xml
+.idea/assetWizardSettings.xml
+.idea/shelf/
+.idea/deploymentTargetDropDown.xml
+
+# Operating System files
+.DS_Store
+Thumbs.db
+
+# Android Profiler & C/C++ Native builds
+/captures/
+.externalNativeBuild/
+.cxx/
+*.hprof
+
+# Security: Keystore files and signing secrets (NEVER COMMIT)
+*.jks
+*.keystore
+.env
+
+# Local AI Agent Instructions & Session Memory (Personal / Ephemeral)
+.agents/AGENTS.md
+.agents/MEMORY.md
