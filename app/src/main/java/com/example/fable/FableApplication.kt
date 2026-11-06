@@ -2,6 +2,7 @@ package com.example.fable
 
 import android.app.Application
 import androidx.room.Room
+import com.example.fable.data.local.DeviceIdentityStore
 import com.example.fable.data.local.FableDatabase
 import com.example.fable.data.local.SecureSessionStore
 import com.example.fable.data.remote.FableApiService
@@ -12,6 +13,8 @@ import com.example.fable.domain.repository.StoryRepository
 
 class FableApplication : Application() {
     lateinit var sessionStore: SecureSessionStore
+        private set
+    lateinit var deviceIdentityStore: DeviceIdentityStore
         private set
     lateinit var apiService: FableApiService
         private set
@@ -28,6 +31,7 @@ class FableApplication : Application() {
             "fable.db"
         ).build()
         sessionStore = SecureSessionStore(applicationContext)
+        deviceIdentityStore = DeviceIdentityStore(applicationContext)
         apiService = FableApiService(
             baseUrl = BuildConfig.FABLE_API_BASE_URL,
             accessTokenProvider = sessionStore::readAccessToken
