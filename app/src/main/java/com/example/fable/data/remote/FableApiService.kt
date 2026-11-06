@@ -58,6 +58,26 @@ class FableApiService(
     suspend fun fetchGutenbergChapters(gutenbergId: Int): List<ChapterDto> =
         get(url("public", "gutenberg", gutenbergId.toString(), "chapters"))
 
+    suspend fun fetchMangaStories(
+        search: String? = null,
+        limit: Int = 20,
+        offset: Int = 0
+    ): List<StoryDto> = get(
+        url("public", "manga") {
+            addQueryParameter("search", search)
+            addQueryParameter("limit", limit.toString())
+            addQueryParameter("offset", offset.toString())
+        }
+    )
+
+    suspend fun fetchMangaStory(mangaId: String): StoryDto =
+        get(url("public", "manga", mangaId))
+
+    suspend fun fetchMangaChapters(mangaId: String, limit: Int = 20): List<ChapterDto> =
+        get(url("public", "manga", mangaId, "chapters") {
+            addQueryParameter("limit", limit.toString())
+        })
+
     suspend fun fetchGenres(): List<GenreDto> = get(url("genres"))
 
     suspend fun fetchTopAuthors(): List<WriterDto> = get(url("authors", "top"))

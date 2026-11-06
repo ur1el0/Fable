@@ -17,6 +17,7 @@ interface StoryRepository {
     suspend fun refreshChapters(storyId: String): Result<Unit>
     suspend fun refreshChapter(storyId: String, chapterNumber: Int): Result<Unit>
     suspend fun searchGutenberg(topic: String? = null, search: String? = null): Result<List<Story>>
+    suspend fun searchManga(search: String? = null, limit: Int = 20, offset: Int = 0): Result<List<Story>>
     suspend fun toggleBookmark(storyId: String): Result<Boolean>
     suspend fun saveProgress(
         storyId: String,

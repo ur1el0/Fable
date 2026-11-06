@@ -47,6 +47,8 @@ class RoomStoryRepository(
         val remote = when (SourceProvider.fromWireValue(existing?.sourceProvider.orEmpty())) {
             SourceProvider.GUTENBERG -> existing?.providerId?.toIntOrNull()
                 ?.let { api.fetchGutenbergStory(it) } ?: api.fetchStory(storyId)
+            SourceProvider.MANGADEX -> existing?.providerId
+                ?.let { api.fetchMangaStory(it) } ?: api.fetchStory(storyId)
             else -> api.fetchStory(storyId)
         }
         dao.upsertStories(listOf(remote.toEntity(existing)))
@@ -57,6 +59,8 @@ class RoomStoryRepository(
         val remoteChapters = when (SourceProvider.fromWireValue(story?.sourceProvider.orEmpty())) {
             SourceProvider.GUTENBERG -> story?.providerId?.toIntOrNull()
                 ?.let { api.fetchGutenbergChapters(it) } ?: api.fetchChapters(storyId)
+            SourceProvider.MANGADEX -> story?.providerId
+                ?.let { api.fetchMangaChapters(it, limit = 50) } ?: api.fetchChapters(storyId)
             else -> api.fetchChapters(storyId)
         }
         val chapters = remoteChapters.map { it.toEntity() }
@@ -69,6 +73,9 @@ class RoomStoryRepository(
             SourceProvider.GUTENBERG -> story?.providerId?.toIntOrNull()
                 ?.let { providerId -> api.fetchGutenbergChapters(providerId).firstOrNull { it.chapterNumber == chapterNumber } }
                 ?: api.fetchChapter(storyId, chapterNumber)
+            SourceProvider.MANGADEX -> story?.providerId
+                ?.let { providerId -> api.fetchMangaChapters(providerId, limit = 50).firstOrNull { it.chapterNumber == chapterNumber } }
+                ?: api.fetchChapter(storyId, chapterNumber)
             else -> api.fetchChapter(storyId, chapterNumber)
         } ?: error("Chapter $chapterNumber is not available.")
         dao.upsertChapters(listOf(chapter.toEntity()))
@@ -76,6 +83,16 @@ class RoomStoryRepository(
 
     override suspend fun searchGutenberg(topic: String?, search: String?): Result<List<Story>> = runCatching {
         val remote = api.fetchGutenbergStories(topic = topic, search = search)
+        persistStories(remote)
+        remote.map { it.toDomain() }
+    }
+
+    override suspend fun searchManga(
+        search: String?,
+        limit: Int,
+        offset: Int
+    ): Result<List<Story>> = runCatching {
+        val remote = api.fetchMangaStories(search = search, limit = limit.coerceIn(1, 50), offset = offset.coerceAtLeast(0))
         persistStories(remote)
         remote.map { it.toDomain() }
     }
