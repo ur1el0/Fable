@@ -36,6 +36,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -65,6 +66,10 @@ fun LibraryScreen(
     onStorySelected: (Story) -> Unit = {},
     onToggleBookmark: (Story) -> Unit = {}
 ) {
+    val locale = LocalConfiguration.current.locales[0] ?: Locale.US
+    val todayLabel = remember(locale) {
+        SimpleDateFormat("EEEE, MMM d", locale).format(Date()).uppercase(locale)
+    }
     var selectedGenre by rememberSaveable { mutableStateOf("All") }
     val filteredStories = remember(stories, selectedGenre) {
         if (selectedGenre == "All") stories else stories.filter { it.genre.equals(selectedGenre, true) }
@@ -89,7 +94,7 @@ fun LibraryScreen(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        SimpleDateFormat("EEEE, MMM d", Locale.getDefault()).format(Date()).uppercase(Locale.getDefault()),
+                        todayLabel,
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
