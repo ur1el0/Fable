@@ -33,6 +33,9 @@ data class FableUiState(
     val writers: List<Writer> = emptyList(),
     val updateFeed: UpdateFeed? = null,
     val isRefreshing: Boolean = false,
+    val isPublishing: Boolean = false,
+    val publishErrorMessage: String? = null,
+    val publishNoticeMessage: String? = null,
     val isSearchingProvider: Boolean = false,
     val providerErrorMessage: String? = null,
     val errorMessage: String? = null
@@ -119,6 +122,29 @@ class FableViewModel(
                 onFailure = { error ->
                     mutableUiState.update {
                         it.copy(providerStories = emptyList(), isSearchingProvider = false, providerErrorMessage = error.message)
+                    }
+                }
+            )
+        }
+    }
+
+    fun publishStory(title: String, genre: String, synopsis: String, content: String) {
+        if (mutableUiState.value.isPublishing) return
+        mutableUiState.update { it.copy(isPublishing = true, publishErrorMessage = null, publishNoticeMessage = null) }
+        viewModelScope.launch {
+            repository.publishStory(title, genre, synopsis, content).fold(
+                onSuccess = { story ->
+                    mutableUiState.update {
+                        it.copy(isPublishing = false, publishErrorMessage = null, publishNoticeMessage = "Story published.")
+                    }
+                    openStory(story)
+                },
+                onFailure = { error ->
+                    mutableUiState.update {
+                        it.copy(
+                            isPublishing = false,
+                            publishErrorMessage = error.message ?: "Story could not be published."
+                        )
                     }
                 }
             )
