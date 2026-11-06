@@ -5,11 +5,13 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.fable.domain.model.Chapter
 import com.example.fable.domain.model.GenreCategory
+import com.example.fable.domain.model.ReadingStats
 import com.example.fable.domain.model.Story
 import com.example.fable.domain.model.StoryCatalog
 import com.example.fable.domain.model.UpdateFeed
 import com.example.fable.domain.model.Writer
 import com.example.fable.domain.repository.StoryRepository
+import com.example.fable.domain.repository.ReadingStatsRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -32,6 +34,7 @@ data class FableUiState(
     val genres: List<GenreCategory> = emptyList(),
     val writers: List<Writer> = emptyList(),
     val updateFeed: UpdateFeed? = null,
+    val readingStats: ReadingStats = ReadingStats(),
     val isRefreshing: Boolean = false,
     val isPublishing: Boolean = false,
     val publishErrorMessage: String? = null,
@@ -42,13 +45,19 @@ data class FableUiState(
 )
 
 class FableViewModel(
-    private val repository: StoryRepository
+    private val repository: StoryRepository,
+    private val readingStatsRepository: ReadingStatsRepository
 ) : ViewModel() {
     private val mutableUiState = MutableStateFlow(FableUiState())
     val uiState: StateFlow<FableUiState> = mutableUiState.asStateFlow()
     private var selectedStoryJob: Job? = null
     private var chaptersJob: Job? = null
     private var providerSearchJob: Job? = null
+    private var shelfOwnerJob: Job? = null
+    private var readingStatsJob: Job? = null
+    private var activeShelfOwnerId = GUEST_OWNER_ID
+    private var readerSessionOwnerId = GUEST_OWNER_ID
+    private var readerSessionCompleted = false
 
     init {
         repository.observeCatalog()
@@ -154,10 +163,31 @@ class FableViewModel(
     }
 
     fun setShelfOwner(ownerId: String?) {
-        viewModelScope.launch {
+        val nextOwnerId = ownerId?.takeIf(String::isNotBlank) ?: GUEST_OWNER_ID
+        shelfOwnerJob?.cancel()
+        shelfOwnerJob = viewModelScope.launch {
             repository.setShelfOwner(ownerId)
-            if (!ownerId.isNullOrBlank()) repository.syncShelf()
+            activeShelfOwnerId = nextOwnerId
+            mutableUiState.update { it.copy(readingStats = ReadingStats()) }
+            readingStatsJob?.cancel()
+            readingStatsJob = readingStatsRepository.observeStats(nextOwnerId)
+                .onEach { stats ->
+                    if (activeShelfOwnerId == nextOwnerId) {
+                        mutableUiState.update { it.copy(readingStats = stats) }
+                    }
+                }
+                .launchIn(viewModelScope)
+            if (nextOwnerId != GUEST_OWNER_ID) {
+                repository.syncShelf()
+                readingStatsRepository.sync(nextOwnerId)
+            }
         }
+    }
+
+    fun refreshReadingStats() {
+        val ownerId = activeShelfOwnerId
+        if (ownerId == GUEST_OWNER_ID) return
+        viewModelScope.launch { readingStatsRepository.sync(ownerId) }
     }
 
     fun openStory(story: Story) {
@@ -193,6 +223,8 @@ class FableViewModel(
             ?: state.selectedChapterNumber
             ?: state.chapters.firstOrNull()?.chapterNumber
             ?: 1
+        readerSessionOwnerId = activeShelfOwnerId
+        readerSessionCompleted = story.isCompleted
         mutableUiState.update { it.copy(isReaderOpen = true, selectedChapterNumber = number) }
         loadChapter(story.id, number)
     }
@@ -227,6 +259,7 @@ class FableViewModel(
 
     fun saveReadingProgress(progressPercent: Int, chapterNumber: Int) {
         val story = mutableUiState.value.selectedStory ?: return
+        if (progressPercent >= 100) readerSessionCompleted = true
         val page = if (story.totalPages > 0) {
             (story.totalPages * progressPercent.coerceIn(0, 100) / 100).coerceAtLeast(1)
         } else {
@@ -246,6 +279,24 @@ class FableViewModel(
         }
     }
 
+    fun recordReadingSession(secondsRead: Int) {
+        val story = mutableUiState.value.selectedStory ?: return
+        val ownerId = readerSessionOwnerId
+        if (ownerId == GUEST_OWNER_ID) return
+        viewModelScope.launch {
+            val result = readingStatsRepository.recordSession(
+                ownerId = ownerId,
+                storyId = story.id,
+                secondsRead = secondsRead,
+                isCompleted = readerSessionCompleted || story.isCompleted
+            )
+            result.onFailure(::setError)
+            if (result.isSuccess && ownerId == activeShelfOwnerId) {
+                readingStatsRepository.sync(ownerId)
+            }
+        }
+    }
+
     private fun loadChapter(storyId: String, chapterNumber: Int) {
         if (mutableUiState.value.chapters.none { it.chapterNumber == chapterNumber }) return
         viewModelScope.launch {
@@ -257,11 +308,18 @@ class FableViewModel(
         mutableUiState.update { it.copy(errorMessage = error.message) }
     }
 
-    class Factory(private val repository: StoryRepository) : ViewModelProvider.Factory {
+    class Factory(
+        private val repository: StoryRepository,
+        private val readingStatsRepository: ReadingStatsRepository
+    ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
             require(modelClass.isAssignableFrom(FableViewModel::class.java))
-            return FableViewModel(repository) as T
+            return FableViewModel(repository, readingStatsRepository) as T
         }
+    }
+
+    private companion object {
+        const val GUEST_OWNER_ID = "guest"
     }
 }
