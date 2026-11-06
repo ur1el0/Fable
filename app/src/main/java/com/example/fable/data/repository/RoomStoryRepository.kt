@@ -5,10 +5,12 @@ import com.example.fable.data.local.StoryEntity
 import com.example.fable.data.local.toDomain
 import com.example.fable.data.local.toEntity
 import com.example.fable.data.remote.FableApiService
+import com.example.fable.data.remote.dto.StoryDto
 import com.example.fable.data.remote.dto.toDomain
 import com.example.fable.domain.model.Chapter
 import com.example.fable.domain.model.GenreCategory
 import com.example.fable.domain.model.Story
+import com.example.fable.domain.model.SourceProvider
 import com.example.fable.domain.model.UpdateFeed
 import com.example.fable.domain.model.Writer
 import com.example.fable.domain.repository.StoryRepository
@@ -41,19 +43,47 @@ class RoomStoryRepository(
     }
 
     override suspend fun refreshStory(storyId: String): Result<Unit> = runCatching {
-        val remote = api.fetchStory(storyId)
         val existing = dao.getStory(storyId)
+        val remote = when (SourceProvider.fromWireValue(existing?.sourceProvider.orEmpty())) {
+            SourceProvider.GUTENBERG -> existing?.providerId?.toIntOrNull()
+                ?.let { api.fetchGutenbergStory(it) } ?: api.fetchStory(storyId)
+            else -> api.fetchStory(storyId)
+        }
         dao.upsertStories(listOf(remote.toEntity(existing)))
     }
 
     override suspend fun refreshChapters(storyId: String): Result<Unit> = runCatching {
-        val chapters = api.fetchChapters(storyId).map { it.toEntity() }
+        val story = dao.getStory(storyId)
+        val remoteChapters = when (SourceProvider.fromWireValue(story?.sourceProvider.orEmpty())) {
+            SourceProvider.GUTENBERG -> story?.providerId?.toIntOrNull()
+                ?.let { api.fetchGutenbergChapters(it) } ?: api.fetchChapters(storyId)
+            else -> api.fetchChapters(storyId)
+        }
+        val chapters = remoteChapters.map { it.toEntity() }
         dao.replaceChapters(storyId, chapters)
     }
 
     override suspend fun refreshChapter(storyId: String, chapterNumber: Int): Result<Unit> = runCatching {
-        val chapter = api.fetchChapter(storyId, chapterNumber)
+        val story = dao.getStory(storyId)
+        val chapter = when (SourceProvider.fromWireValue(story?.sourceProvider.orEmpty())) {
+            SourceProvider.GUTENBERG -> story?.providerId?.toIntOrNull()
+                ?.let { providerId -> api.fetchGutenbergChapters(providerId).firstOrNull { it.chapterNumber == chapterNumber } }
+                ?: api.fetchChapter(storyId, chapterNumber)
+            else -> api.fetchChapter(storyId, chapterNumber)
+        } ?: error("Chapter $chapterNumber is not available.")
         dao.upsertChapters(listOf(chapter.toEntity()))
+    }
+
+    override suspend fun searchGutenberg(topic: String?, search: String?): Result<List<Story>> = runCatching {
+        val remote = api.fetchGutenbergStories(topic = topic, search = search)
+        persistStories(remote)
+        remote.map { it.toDomain() }
+    }
+
+    private suspend fun persistStories(remote: List<StoryDto>) {
+        if (remote.isEmpty()) return
+        val existing = dao.getStories(remote.map { it.id }).associateBy(StoryEntity::id)
+        dao.upsertStories(remote.map { it.toEntity(existing[it.id]) })
     }
 
     override suspend fun toggleBookmark(storyId: String): Result<Boolean> = runCatching {
