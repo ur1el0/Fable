@@ -6,6 +6,7 @@ import com.example.fable.data.local.ShelfStateEntity
 import com.example.fable.data.local.toDomain
 import com.example.fable.data.local.toEntity
 import com.example.fable.data.local.toShelfState
+import com.example.fable.data.local.toSyncDto
 import com.example.fable.data.remote.FableApiService
 import com.example.fable.data.remote.dto.CreateStoryRequestDto
 import com.example.fable.data.remote.dto.ShelfSyncItemDto
@@ -194,6 +195,43 @@ class RoomStoryRepository(
                     }
                 }
                 dao.upsertShelfStates(reconciledStates)
+            }
+        }
+    }
+
+    override suspend fun syncShelfState(storyId: String): Result<Unit> = runCatching {
+        val ownerId = activeShelfOwnerId.value
+        if (ownerId == GUEST_OWNER_ID) return@runCatching
+        val token = accessTokenProvider()?.takeIf(String::isNotBlank) ?: return@runCatching
+
+        shelfSyncMutex.withLock sync@{
+            if (!isCurrentShelfSession(ownerId, token)) return@sync
+            val localState = shelfMutationMutex.withLock state@{
+                if (!isCurrentShelfSession(ownerId, token)) return@state null
+                dao.getShelfState(ownerId, storyId)
+            } ?: return@sync
+
+            val response = api.syncShelf(
+                ShelfSyncRequestDto(deviceId, listOf(localState.toSyncDto())),
+                token
+            )
+            if (!isCurrentShelfSession(ownerId, token)) return@sync
+
+            shelfMutationMutex.withLock state@{
+                if (!isCurrentShelfSession(ownerId, token)) return@state
+                val current = dao.getShelfState(ownerId, storyId)
+                val reconciled = response.reconciledItems
+                    .asSequence()
+                    .filter { it.storyId == storyId }
+                    .mapNotNull { remote ->
+                        if (current == null || !isNewer(current.updatedAtUtc, remote.updatedAtUtc)) {
+                            remote.toEntity(ownerId, previous = current)
+                        } else {
+                            null
+                        }
+                    }
+                    .toList()
+                dao.upsertShelfStates(reconciled)
             }
         }
     }

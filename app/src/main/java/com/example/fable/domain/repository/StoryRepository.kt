@@ -21,6 +21,7 @@ interface StoryRepository {
     suspend fun publishStory(title: String, genre: String, synopsis: String, content: String): Result<Story>
     suspend fun setShelfOwner(ownerId: String?)
     suspend fun syncShelf(): Result<Unit>
+    suspend fun syncShelfState(storyId: String): Result<Unit>
     suspend fun toggleBookmark(storyId: String): Result<Boolean>
     suspend fun saveProgress(
         storyId: String,
