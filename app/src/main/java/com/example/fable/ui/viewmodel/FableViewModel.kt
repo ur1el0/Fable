@@ -151,6 +151,10 @@ class FableViewModel(
         }
     }
 
+    fun setShelfOwner(ownerId: String?) {
+        viewModelScope.launch { repository.setShelfOwner(ownerId) }
+    }
+
     fun openStory(story: Story) {
         selectedStoryJob?.cancel()
         chaptersJob?.cancel()

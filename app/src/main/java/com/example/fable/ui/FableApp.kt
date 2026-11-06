@@ -61,6 +61,10 @@ fun FableApp(modifier: Modifier = Modifier) {
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     val snackbarHostState = remember { SnackbarHostState() }
 
+    LaunchedEffect(accountState.user?.id) {
+        viewModel.setShelfOwner(accountState.user?.id)
+    }
+
     LaunchedEffect(state.publishNoticeMessage) {
         state.publishNoticeMessage?.let { snackbarHostState.showSnackbar(it) }
     }
