@@ -10,6 +10,8 @@ import com.example.fable.data.remote.dto.PasswordResetAcceptedDto
 import com.example.fable.data.remote.dto.PasswordResetConfirmRequestDto
 import com.example.fable.data.remote.dto.PasswordResetRequestDto
 import com.example.fable.data.remote.dto.ProfileUpdateRequestDto
+import com.example.fable.data.remote.dto.ReadingSessionRequestDto
+import com.example.fable.data.remote.dto.ReadingStatsDto
 import com.example.fable.data.remote.dto.RegisterRequestDto
 import com.example.fable.data.remote.dto.ShelfSyncRequestDto
 import com.example.fable.data.remote.dto.ShelfSyncResponseDto
@@ -114,6 +116,15 @@ class FableApiService(
     suspend fun fetchMyStories(
         accessToken: String? = accessTokenProvider()
     ): List<StoryDto> = get(url("auth", "me", "stories"), accessToken)
+
+    suspend fun recordReadingSession(
+        request: ReadingSessionRequestDto,
+        accessToken: String? = accessTokenProvider()
+    ) = postNoContentWithBody(url("auth", "me", "reading-sessions"), request, accessToken)
+
+    suspend fun fetchReadingStats(
+        accessToken: String? = accessTokenProvider()
+    ): ReadingStatsDto = get(url("auth", "me", "stats"), accessToken)
 
     suspend fun updateProfile(request: ProfileUpdateRequestDto): UserDto =
         patchJson(url("auth", "me"), request, accessTokenProvider())
