@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.example.fable.domain.model.GenreCategory
 import com.example.fable.domain.model.Story
+import com.example.fable.domain.model.StoryCatalog
 import com.example.fable.domain.model.Writer
 import com.example.fable.ui.components.EmptyState
 import com.example.fable.ui.components.SectionTitle
@@ -48,15 +49,21 @@ import com.example.fable.ui.components.StoryRow
 fun ExploreScreen(
     modifier: Modifier = Modifier,
     stories: List<Story> = emptyList(),
+    providerStories: List<Story> = emptyList(),
     genres: List<GenreCategory> = emptyList(),
     writers: List<Writer> = emptyList(),
+    isSearchingProvider: Boolean = false,
+    providerErrorMessage: String? = null,
+    onSearchProvider: (StoryCatalog, String) -> Unit = { _, _ -> },
     onStorySelected: (Story) -> Unit = {},
     onToggleBookmark: (Story) -> Unit = {}
 ) {
     var query by rememberSaveable { mutableStateOf("") }
     var format by rememberSaveable { mutableStateOf("All") }
-    val filtered = remember(stories, query, format) {
-        stories.filter { story ->
+    var selectedCatalog by rememberSaveable { mutableStateOf(StoryCatalog.FABLE) }
+    val catalogStories = if (selectedCatalog == StoryCatalog.FABLE) stories else providerStories
+    val filtered = remember(catalogStories, query, format) {
+        catalogStories.filter { story ->
             val matchesQuery = query.isBlank() || story.title.contains(query, true) || story.author.contains(query, true)
             val matchesFormat = format == "All" || story.contentFormat.name.equals(format, true)
             matchesQuery && matchesFormat
@@ -75,7 +82,10 @@ fun ExploreScreen(
         item {
             OutlinedTextField(
                 value = query,
-                onValueChange = { query = it },
+                onValueChange = {
+                    query = it
+                    if (selectedCatalog != StoryCatalog.FABLE) onSearchProvider(selectedCatalog, it)
+                },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
@@ -84,6 +94,29 @@ fun ExploreScreen(
             )
         }
         item {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(StoryCatalog.entries, key = StoryCatalog::name) { catalog ->
+                    FilterChip(
+                        selected = selectedCatalog == catalog,
+                        onClick = {
+                            selectedCatalog = catalog
+                            format = "All"
+                            onSearchProvider(catalog, query)
+                        },
+                        label = {
+                            Text(
+                                when (catalog) {
+                                    StoryCatalog.FABLE -> "Fable"
+                                    StoryCatalog.GUTENBERG -> "Gutenberg"
+                                    StoryCatalog.MANGA -> "MangaDex"
+                                }
+                            )
+                        }
+                    )
+                }
+            }
+        }
+        if (selectedCatalog == StoryCatalog.FABLE) item {
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(listOf("All", "PROSE", "MANGA")) { option ->
                     FilterChip(selected = format == option, onClick = { format = option }, label = { Text(option.lowercase().replaceFirstChar(Char::uppercase)) })
@@ -96,7 +129,14 @@ fun ExploreScreen(
             item {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(genres, key = GenreCategory::id) { genre ->
-                        FilterChip(selected = false, onClick = { query = genre.name }, label = { Text(genre.name) })
+                        FilterChip(
+                            selected = false,
+                            onClick = {
+                                query = genre.name
+                                if (selectedCatalog != StoryCatalog.FABLE) onSearchProvider(selectedCatalog, genre.name)
+                            },
+                            label = { Text(genre.name) }
+                        )
                     }
                 }
             }
@@ -128,12 +168,26 @@ fun ExploreScreen(
             }
         }
 
-        item { SectionTitle(if (query.isBlank()) "Stories" else "Search results") }
+        item {
+            SectionTitle(
+                when {
+                    query.isNotBlank() -> "Search results"
+                    selectedCatalog == StoryCatalog.GUTENBERG -> "Project Gutenberg"
+                    selectedCatalog == StoryCatalog.MANGA -> "Manga"
+                    else -> "Stories"
+                }
+            )
+        }
         if (filtered.isEmpty()) {
             item {
                 EmptyState(
                     title = if (query.isBlank()) "No stories to explore" else "No matches",
-                    message = if (query.isBlank()) "The catalog will appear here when it is available." else "Try a different title, author, or genre."
+                    message = when {
+                        isSearchingProvider -> "Searching ${selectedCatalog.name.lowercase().replaceFirstChar(Char::uppercase)}"
+                        providerErrorMessage != null && selectedCatalog != StoryCatalog.FABLE -> providerErrorMessage
+                        query.isBlank() -> "The catalog will appear here when it is available."
+                        else -> "Try a different title, author, or genre."
+                    }
                 )
             }
         } else {
