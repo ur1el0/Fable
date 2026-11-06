@@ -1,5 +1,6 @@
 package com.example.fable.ui.screens
 
+import android.os.SystemClock
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -19,14 +20,24 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -54,12 +65,42 @@ fun StoryReaderScreen(
     onBack: () -> Unit,
     onSelectChapter: (Int) -> Unit,
     onSaveProgress: (Int, Int) -> Unit,
+    onReadingSessionEnded: (String, Int, Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val latestStory by rememberUpdatedState(story)
+    val latestOnReadingSessionEnded by rememberUpdatedState(onReadingSessionEnded)
+    var sessionStartedAt by remember(story.id) { mutableLongStateOf(SystemClock.elapsedRealtime()) }
+    var isSessionActive by remember(story.id) { mutableStateOf(true) }
     val chapterIndex = chapters.indexOfFirst { it.chapterNumber == chapterNumber }
     val chapter = chapters.getOrNull(chapterIndex)
     val chapterTotal = maxOf(story.totalChapters, chapters.size, 1)
     val content = chapter?.content?.takeIf(String::isNotBlank) ?: story.content
+
+    DisposableEffect(lifecycleOwner, story.id) {
+        fun endActiveSegment() {
+            val elapsedSeconds = ((SystemClock.elapsedRealtime() - sessionStartedAt) / 1_000L).toInt()
+            latestOnReadingSessionEnded(latestStory.id, elapsedSeconds, latestStory.isCompleted)
+            isSessionActive = false
+        }
+
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_STOP -> if (isSessionActive) endActiveSegment()
+                Lifecycle.Event.ON_START -> if (!isSessionActive) {
+                    sessionStartedAt = SystemClock.elapsedRealtime()
+                    isSessionActive = true
+                }
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            if (isSessionActive) endActiveSegment()
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
 
     Column(modifier.fillMaxSize()) {
         Row(

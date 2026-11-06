@@ -65,6 +65,10 @@ fun FableApp(modifier: Modifier = Modifier) {
         viewModel.setShelfOwner(accountState.user?.id)
     }
 
+    LaunchedEffect(selectedTab, accountState.user?.id) {
+        if (selectedTab == 3 && accountState.user != null) viewModel.refreshReadingStats()
+    }
+
     LaunchedEffect(state.publishNoticeMessage) {
         state.publishNoticeMessage?.let { snackbarHostState.showSnackbar(it) }
     }
@@ -115,7 +119,8 @@ fun FableApp(modifier: Modifier = Modifier) {
                 errorMessage = state.errorMessage,
                 onBack = viewModel::navigateBackFromStory,
                 onSelectChapter = viewModel::selectChapter,
-                onSaveProgress = viewModel::saveReadingProgress
+                onSaveProgress = viewModel::saveReadingProgress,
+                onReadingSessionEnded = viewModel::recordReadingSession
             )
             selectedStory != null -> StoryDetailScreen(
                 modifier = Modifier.padding(innerPadding),
@@ -164,6 +169,8 @@ fun FableApp(modifier: Modifier = Modifier) {
                 else -> ShelfScreen(
                     modifier = Modifier.padding(innerPadding),
                     stories = state.shelfStories,
+                    readingStats = state.readingStats,
+                    showReadingStats = accountState.user != null,
                     onStorySelected = viewModel::openStory,
                     onToggleBookmark = viewModel::toggleBookmark
                 )

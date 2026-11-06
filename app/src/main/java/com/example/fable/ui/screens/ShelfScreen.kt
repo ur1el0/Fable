@@ -3,6 +3,7 @@ package com.example.fable.ui.screens
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -19,6 +20,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.example.fable.domain.model.Story
+import com.example.fable.domain.model.ReadingStats
 import com.example.fable.ui.components.EmptyState
 import com.example.fable.ui.components.StoryRow
 
@@ -26,6 +28,8 @@ import com.example.fable.ui.components.StoryRow
 fun ShelfScreen(
     modifier: Modifier = Modifier,
     stories: List<Story> = emptyList(),
+    readingStats: ReadingStats = ReadingStats(),
+    showReadingStats: Boolean = false,
     onStorySelected: (Story) -> Unit = {},
     onToggleBookmark: (Story) -> Unit = {}
 ) {
@@ -43,6 +47,27 @@ fun ShelfScreen(
         item {
             Text("MY SHELF", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
             Text("Your shelf", style = MaterialTheme.typography.displaySmall)
+        }
+        if (showReadingStats) {
+            item {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    ReadingStatMetric(
+                        value = readingStats.storiesReadCount.toString(),
+                        label = "Stories finished",
+                        modifier = Modifier.weight(1f)
+                    )
+                    ReadingStatMetric(
+                        value = readingStats.totalMinutesRead.toString(),
+                        label = "Minutes read",
+                        modifier = Modifier.weight(1f)
+                    )
+                    ReadingStatMetric(
+                        value = readingStats.streakDays.toString(),
+                        label = "Day streak",
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
         }
         item {
             androidx.compose.foundation.layout.Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -70,5 +95,13 @@ fun ShelfScreen(
                 StoryRow(story, onClick = { onStorySelected(story) }, onToggleBookmark = { onToggleBookmark(story) })
             }
         }
+    }
+}
+
+@Composable
+private fun ReadingStatMetric(value: String, label: String, modifier: Modifier = Modifier) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(value, style = MaterialTheme.typography.headlineSmall, maxLines = 1)
+        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
