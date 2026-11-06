@@ -100,7 +100,12 @@ fun FableApp(modifier: Modifier = Modifier) {
                 onSaveProfile = accountViewModel::saveProfile,
                 onRequestPasswordReset = accountViewModel::requestPasswordReset,
                 onConfirmPasswordReset = accountViewModel::confirmPasswordReset,
-                onSignOut = accountViewModel::signOut
+                onSignOut = accountViewModel::signOut,
+                onStorySelected = { story ->
+                    accountOpen = false
+                    selectedTab = 0
+                    viewModel.openStory(story)
+                }
             )
             selectedStory != null && state.isReaderOpen -> StoryReaderScreen(
                 modifier = Modifier.padding(innerPadding),
