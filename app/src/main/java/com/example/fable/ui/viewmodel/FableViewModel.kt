@@ -56,6 +56,7 @@ class FableViewModel(
     private var shelfOwnerJob: Job? = null
     private var readingStatsJob: Job? = null
     private var activeShelfOwnerId = GUEST_OWNER_ID
+    private var readerSessionStoryId: String? = null
     private var readerSessionOwnerId = GUEST_OWNER_ID
     private var readerSessionCompleted = false
 
@@ -223,6 +224,7 @@ class FableViewModel(
             ?: state.selectedChapterNumber
             ?: state.chapters.firstOrNull()?.chapterNumber
             ?: 1
+        readerSessionStoryId = story.id
         readerSessionOwnerId = activeShelfOwnerId
         readerSessionCompleted = story.isCompleted
         mutableUiState.update { it.copy(isReaderOpen = true, selectedChapterNumber = number) }
@@ -279,16 +281,16 @@ class FableViewModel(
         }
     }
 
-    fun recordReadingSession(secondsRead: Int) {
-        val story = mutableUiState.value.selectedStory ?: return
+    fun recordReadingSession(storyId: String, secondsRead: Int, isCompleted: Boolean) {
+        if (readerSessionStoryId != storyId) return
         val ownerId = readerSessionOwnerId
         if (ownerId == GUEST_OWNER_ID) return
         viewModelScope.launch {
             val result = readingStatsRepository.recordSession(
                 ownerId = ownerId,
-                storyId = story.id,
+                storyId = storyId,
                 secondsRead = secondsRead,
-                isCompleted = readerSessionCompleted || story.isCompleted
+                isCompleted = readerSessionCompleted || isCompleted
             )
             result.onFailure(::setError)
             if (result.isSuccess && ownerId == activeShelfOwnerId) {
