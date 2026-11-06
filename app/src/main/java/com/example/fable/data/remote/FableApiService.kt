@@ -1,19 +1,25 @@
 package com.example.fable.data.remote
 
 import com.example.fable.data.remote.dto.ApiErrorDto
+import com.example.fable.data.remote.dto.AuthResponseDto
 import com.example.fable.data.remote.dto.ChapterDto
 import com.example.fable.data.remote.dto.GenreDto
+import com.example.fable.data.remote.dto.LoginRequestDto
+import com.example.fable.data.remote.dto.RegisterRequestDto
 import com.example.fable.data.remote.dto.StoryDto
 import com.example.fable.data.remote.dto.UpdateFeedDto
 import com.example.fable.data.remote.dto.WriterDto
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.decodeFromString
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
 
 class FableApiService(
     baseUrl: String,
@@ -84,6 +90,12 @@ class FableApiService(
 
     suspend fun fetchUpdateFeed(): UpdateFeedDto = get(url("updates"))
 
+    suspend fun register(request: RegisterRequestDto): AuthResponseDto =
+        postJson(url("auth", "register"), request)
+
+    suspend fun login(request: LoginRequestDto): AuthResponseDto =
+        postJson(url("auth", "login"), request)
+
     private fun url(vararg segments: String, query: HttpUrl.Builder.() -> Unit = {}): HttpUrl =
         (baseUrl ?: throw FableApiException(0, "Fable API URL is not configured."))
             .newBuilder()
@@ -104,6 +116,23 @@ class FableApiService(
             json.decodeFromString<T>(payload)
         }
     }
+
+    private suspend inline fun <reified T, reified B> postJson(url: HttpUrl, body: B): T =
+        withContext(Dispatchers.IO) {
+            val requestBody = json.encodeToString(body)
+                .toRequestBody("application/json; charset=utf-8".toMediaType())
+            val request = Request.Builder().url(url).post(requestBody).build()
+            client.newCall(request).execute().use { response ->
+                val payload = response.body?.string().orEmpty()
+                if (!response.isSuccessful) {
+                    val detail = runCatching { json.decodeFromString<ApiErrorDto>(payload).detail }
+                        .getOrNull()
+                        ?.takeIf(String::isNotBlank)
+                    throw FableApiException(response.code, detail ?: "The server could not complete the request.")
+                }
+                json.decodeFromString<T>(payload)
+            }
+        }
 }
 
 class FableApiException(val statusCode: Int, message: String) : Exception(message)
