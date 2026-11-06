@@ -282,6 +282,7 @@ class FableViewModel(
     }
 
     fun recordReadingSession(storyId: String, secondsRead: Int, isCompleted: Boolean) {
+        if (secondsRead < MIN_READING_SESSION_SECONDS) return
         if (readerSessionStoryId != storyId) return
         val ownerId = readerSessionOwnerId
         if (ownerId == GUEST_OWNER_ID) return
@@ -323,5 +324,6 @@ class FableViewModel(
 
     private companion object {
         const val GUEST_OWNER_ID = "guest"
+        const val MIN_READING_SESSION_SECONDS = 3
     }
 }
