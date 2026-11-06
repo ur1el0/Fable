@@ -1,5 +1,13 @@
 # 04 Database Schema & Persistence (Room SQLite)
 
+## Current Android Schema
+
+The current implementation uses two tables. `stories` caches backend catalog metadata and keeps device-owned bookmark, completion, page progress, and last-chapter state. `chapters` caches prose or manga chapter content and references `stories.id` with cascade deletion.
+
+The Room schema is versioned and exported to `app/schemas/`. `StoryDao` exposes catalog, shelf, story, and chapter data as `Flow`; remote refreshes update cached content while retaining local reading state. Chapter replacement runs in a transaction so readers never observe a partially refreshed chapter list.
+
+The tables below describe the original generic-reader plan and are not implemented in schema version 1.
+
 ## 1. RDBMS Strategy: Room Persistence Library
 
 Fable uses **AndroidX Room** over an embedded **SQLite** engine as the single source of truth for the entire application. Room provides compile-time query verification via KSP, robust reactive `Flow` observation, and transactional integrity.

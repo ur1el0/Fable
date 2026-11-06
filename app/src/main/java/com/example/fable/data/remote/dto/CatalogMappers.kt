@@ -24,6 +24,7 @@ fun StoryDto.toDomain() = Story(
     title = title,
     author = author,
     genre = genre,
+    chapter = chapter,
     synopsis = synopsis,
     content = content,
     readTimeMinutes = readTimeMinutes,

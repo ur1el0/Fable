@@ -38,6 +38,7 @@ data class Story(
     val title: String,
     val author: String,
     val genre: String,
+    val chapter: String = "",
     val synopsis: String,
     val content: String,
     val readTimeMinutes: Int = 0,
