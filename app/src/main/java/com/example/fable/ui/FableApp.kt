@@ -21,10 +21,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.fable.FableApplication
 import com.example.fable.ui.screens.ExploreScreen
 import com.example.fable.ui.screens.LibraryScreen
 import com.example.fable.ui.screens.ShelfScreen
 import com.example.fable.ui.screens.WriteScreen
+import com.example.fable.ui.viewmodel.FableViewModel
 
 private val tabs = listOf(
     "Library" to Icons.Outlined.Book,
@@ -35,6 +40,11 @@ private val tabs = listOf(
 
 @Composable
 fun FableApp(modifier: Modifier = Modifier) {
+    val application = LocalContext.current.applicationContext as FableApplication
+    val viewModel: FableViewModel = viewModel(
+        factory = FableViewModel.Factory(application.storyRepository)
+    )
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -56,10 +66,29 @@ fun FableApp(modifier: Modifier = Modifier) {
         }
     ) { innerPadding ->
         when (selectedTab) {
-            0 -> LibraryScreen(modifier = Modifier.padding(innerPadding))
-            1 -> ExploreScreen(modifier = Modifier.padding(innerPadding))
+            0 -> LibraryScreen(
+                modifier = Modifier.padding(innerPadding),
+                stories = state.stories,
+                genres = state.genres,
+                updateFeed = state.updateFeed,
+                isRefreshing = state.isRefreshing,
+                errorMessage = state.errorMessage,
+                onRefresh = viewModel::refreshCatalog,
+                onToggleBookmark = viewModel::toggleBookmark
+            )
+            1 -> ExploreScreen(
+                modifier = Modifier.padding(innerPadding),
+                stories = state.stories,
+                genres = state.genres,
+                writers = state.writers,
+                onToggleBookmark = viewModel::toggleBookmark
+            )
             2 -> WriteScreen(modifier = Modifier.padding(innerPadding))
-            else -> ShelfScreen(modifier = Modifier.padding(innerPadding))
+            else -> ShelfScreen(
+                modifier = Modifier.padding(innerPadding),
+                stories = state.shelfStories,
+                onToggleBookmark = viewModel::toggleBookmark
+            )
         }
     }
 }

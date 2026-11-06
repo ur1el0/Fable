@@ -92,5 +92,14 @@ class RoomStoryRepository(
 
     override suspend fun fetchTopAuthors(): List<Writer> = api.fetchTopAuthors().map { it.toDomain() }
 
-    override suspend fun fetchUpdateFeed(): UpdateFeed = api.fetchUpdateFeed().toDomain()
+    override suspend fun refreshUpdateFeed(): Result<UpdateFeed> = runCatching {
+        val feed = api.fetchUpdateFeed()
+        val updates = feed.toDomain()
+        val remoteStories = listOfNotNull(feed.taleOfTheDay, feed.curatorSpotlight) + feed.recentSubmissions
+        if (remoteStories.isNotEmpty()) {
+            val existing = dao.getStories(remoteStories.map { it.id }).associateBy(StoryEntity::id)
+            dao.upsertStories(remoteStories.map { it.toEntity(existing[it.id]) })
+        }
+        updates
+    }
 }

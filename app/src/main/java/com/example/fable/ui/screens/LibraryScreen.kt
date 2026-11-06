@@ -42,12 +42,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.fable.domain.model.GenreCategory
 import com.example.fable.domain.model.Story
+import com.example.fable.domain.model.UpdateFeed
 import com.example.fable.ui.components.EmptyState
 import com.example.fable.ui.components.SectionTitle
 import com.example.fable.ui.components.StoryCover
 import com.example.fable.ui.components.StoryRow
-import java.time.LocalDate
-import java.time.format.DateTimeFormatter
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 
 @Composable
@@ -55,6 +56,7 @@ fun LibraryScreen(
     modifier: Modifier = Modifier,
     stories: List<Story> = emptyList(),
     genres: List<GenreCategory> = emptyList(),
+    updateFeed: UpdateFeed? = null,
     isRefreshing: Boolean = false,
     errorMessage: String? = null,
     onRefresh: () -> Unit = {},
@@ -65,11 +67,16 @@ fun LibraryScreen(
     val filteredStories = remember(stories, selectedGenre) {
         if (selectedGenre == "All") stories else stories.filter { it.genre.equals(selectedGenre, true) }
     }
-    val featured = filteredStories.firstOrNull { it.isTaleOfTheDay }
+    val featured = updateFeed?.taleOfTheDay?.takeIf { selectedGenre == "All" }
+        ?: updateFeed?.curatorSpotlight?.takeIf { selectedGenre == "All" }
+        ?: filteredStories.firstOrNull { it.isTaleOfTheDay }
         ?: filteredStories.firstOrNull { it.isCuratorSpotlight }
         ?: filteredStories.firstOrNull()
     val continueReading = filteredStories.filter { it.progressPercent > 0 && !it.isCompleted }
-    val recent = filteredStories.filter { it.isRecentSubmission }.ifEmpty { filteredStories }
+    val recent = updateFeed?.recentSubmissions
+        ?.filter { selectedGenre == "All" || it.genre.equals(selectedGenre, true) }
+        ?.takeIf { it.isNotEmpty() }
+        ?: filteredStories.filter { it.isRecentSubmission }.ifEmpty { filteredStories }
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),
@@ -80,7 +87,7 @@ fun LibraryScreen(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        LocalDate.now().format(DateTimeFormatter.ofPattern("EEEE, MMM d", Locale.getDefault())).uppercase(Locale.getDefault()),
+                        SimpleDateFormat("EEEE, MMM d", Locale.getDefault()).format(Date()).uppercase(Locale.getDefault()),
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

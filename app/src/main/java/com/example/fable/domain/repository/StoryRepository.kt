@@ -25,5 +25,5 @@ interface StoryRepository {
     ): Result<Unit>
     suspend fun fetchGenres(): List<GenreCategory>
     suspend fun fetchTopAuthors(): List<Writer>
-    suspend fun fetchUpdateFeed(): UpdateFeed
+    suspend fun refreshUpdateFeed(): Result<UpdateFeed>
 }
