@@ -16,6 +16,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -59,6 +60,10 @@ fun FableApp(modifier: Modifier = Modifier) {
     var accountOpen by rememberSaveable { mutableStateOf(false) }
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(state.publishNoticeMessage) {
+        state.publishNoticeMessage?.let { snackbarHostState.showSnackbar(it) }
+    }
 
     Scaffold(
         modifier = modifier,
@@ -139,7 +144,14 @@ fun FableApp(modifier: Modifier = Modifier) {
                     onStorySelected = viewModel::openStory,
                     onToggleBookmark = viewModel::toggleBookmark
                 )
-                2 -> WriteScreen(modifier = Modifier.padding(innerPadding))
+                2 -> WriteScreen(
+                    modifier = Modifier.padding(innerPadding),
+                    isSignedIn = accountState.user != null,
+                    isPublishing = state.isPublishing,
+                    publishErrorMessage = state.publishErrorMessage,
+                    onSignIn = { accountOpen = true },
+                    onPublish = viewModel::publishStory
+                )
                 else -> ShelfScreen(
                     modifier = Modifier.padding(innerPadding),
                     stories = state.shelfStories,
