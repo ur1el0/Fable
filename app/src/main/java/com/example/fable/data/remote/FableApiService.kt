@@ -122,11 +122,18 @@ class FableApiService(
     suspend fun confirmPasswordReset(request: PasswordResetConfirmRequestDto) =
         postNoContentWithBody(url("auth", "password-reset", "confirm"), request, null)
 
-    suspend fun syncShelf(request: ShelfSyncRequestDto): ShelfSyncResponseDto =
-        postJson(url("shelf", "sync"), request, accessTokenProvider())
+    suspend fun syncShelf(
+        request: ShelfSyncRequestDto,
+        accessToken: String? = accessTokenProvider()
+    ): ShelfSyncResponseDto = postJson(url("shelf", "sync"), request, accessToken)
 
-    suspend fun fetchShelf(deviceId: String): List<ShelfSyncItemDto> =
-        get(url("shelf") { addQueryParameter("deviceId", deviceId) })
+    suspend fun fetchShelf(
+        deviceId: String,
+        accessToken: String? = accessTokenProvider()
+    ): List<ShelfSyncItemDto> = get(
+        url("shelf") { addQueryParameter("deviceId", deviceId) },
+        accessToken
+    )
 
     private fun url(vararg segments: String, query: HttpUrl.Builder.() -> Unit = {}): HttpUrl =
         (baseUrl ?: throw FableApiException(0, "Fable API URL is not configured."))
@@ -135,9 +142,12 @@ class FableApiService(
             .apply(query)
             .build()
 
-    private suspend inline fun <reified T> get(url: HttpUrl): T = withContext(Dispatchers.IO) {
+    private suspend inline fun <reified T> get(
+        url: HttpUrl,
+        accessToken: String? = accessTokenProvider()
+    ): T = withContext(Dispatchers.IO) {
         val requestBuilder = Request.Builder().url(url).get()
-        accessTokenProvider()?.takeIf(String::isNotBlank)?.let { token ->
+        accessToken?.takeIf(String::isNotBlank)?.let { token ->
             requestBuilder.header("Authorization", "Bearer $token")
         }
         val request = requestBuilder.build()
