@@ -17,7 +17,10 @@ import com.example.fable.domain.model.Writer
 import com.example.fable.domain.repository.StoryRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
-import java.time.Instant
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
 
 class RoomStoryRepository(
     private val api: FableApiService,
@@ -137,7 +140,7 @@ class RoomStoryRepository(
             currentPage = story.currentPage,
             chapterId = story.lastReadChapterId,
             chapterNumber = story.lastReadChapterNumber,
-            updatedAtUtc = Instant.now().toString()
+            updatedAtUtc = currentUtcTimestamp()
         )
         bookmarked
     }
@@ -159,7 +162,7 @@ class RoomStoryRepository(
             currentPage = currentPage.coerceAtLeast(1),
             chapterId = chapterId,
             chapterNumber = chapterNumber,
-            updatedAtUtc = Instant.now().toString()
+            updatedAtUtc = currentUtcTimestamp()
         )
     }
 
@@ -177,4 +180,11 @@ class RoomStoryRepository(
         }
         updates
     }
+
+    private fun currentUtcTimestamp(): String = SimpleDateFormat(
+        "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
+        Locale.US
+    ).apply {
+        timeZone = TimeZone.getTimeZone("UTC")
+    }.format(Date())
 }
