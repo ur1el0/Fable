@@ -3,6 +3,7 @@ package com.example.fable.ui.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.example.fable.domain.model.Story
 import com.example.fable.domain.model.UserProfile
 import com.example.fable.domain.repository.AccountRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -13,6 +14,9 @@ import kotlinx.coroutines.launch
 
 data class AccountUiState(
     val user: UserProfile? = null,
+    val publishedStories: List<Story> = emptyList(),
+    val isLoadingPublishedStories: Boolean = false,
+    val publishedStoriesErrorMessage: String? = null,
     val isBusy: Boolean = false,
     val errorMessage: String? = null,
     val noticeMessage: String? = null
@@ -36,7 +40,10 @@ class AccountViewModel(
         viewModelScope.launch {
             beginRequest()
             repository.signIn(email, password).fold(
-                onSuccess = { user -> mutableUiState.update { it.copy(user = user, isBusy = false, errorMessage = null, noticeMessage = null) } },
+                onSuccess = { user ->
+                    mutableUiState.update { it.copy(user = user, isBusy = false, errorMessage = null, noticeMessage = null) }
+                    loadPublishedStories(user.id)
+                },
                 onFailure = ::finishWithError
             )
         }
@@ -49,7 +56,10 @@ class AccountViewModel(
             else -> viewModelScope.launch {
                 beginRequest()
                 repository.register(email, password, name, handle).fold(
-                    onSuccess = { user -> mutableUiState.update { it.copy(user = user, isBusy = false, errorMessage = null, noticeMessage = null) } },
+                    onSuccess = { user ->
+                        mutableUiState.update { it.copy(user = user, isBusy = false, errorMessage = null, noticeMessage = null) }
+                        loadPublishedStories(user.id)
+                    },
                     onFailure = ::finishWithError
                 )
             }
@@ -60,7 +70,10 @@ class AccountViewModel(
         viewModelScope.launch {
             beginRequest()
             repository.currentUser().fold(
-                onSuccess = { user -> mutableUiState.update { it.copy(user = user, isBusy = false, errorMessage = null) } },
+                onSuccess = { user ->
+                    mutableUiState.update { it.copy(user = user, isBusy = false, errorMessage = null) }
+                    loadPublishedStories(user.id)
+                },
                 onFailure = ::finishWithError
             )
         }
@@ -124,6 +137,46 @@ class AccountViewModel(
 
     fun clearFeedback() {
         mutableUiState.update { it.copy(errorMessage = null, noticeMessage = null) }
+    }
+
+    private fun loadPublishedStories(ownerId: String) {
+        if (mutableUiState.value.user?.id != ownerId) return
+        mutableUiState.update {
+            it.copy(
+                publishedStories = emptyList(),
+                isLoadingPublishedStories = true,
+                publishedStoriesErrorMessage = null
+            )
+        }
+        viewModelScope.launch {
+            repository.myStories().fold(
+                onSuccess = { stories ->
+                    mutableUiState.update { state ->
+                        if (state.user?.id == ownerId) {
+                            state.copy(
+                                publishedStories = stories,
+                                isLoadingPublishedStories = false,
+                                publishedStoriesErrorMessage = null
+                            )
+                        } else {
+                            state
+                        }
+                    }
+                },
+                onFailure = { error ->
+                    mutableUiState.update { state ->
+                        if (state.user?.id == ownerId) {
+                            state.copy(
+                                isLoadingPublishedStories = false,
+                                publishedStoriesErrorMessage = error.message
+                            )
+                        } else {
+                            state
+                        }
+                    }
+                }
+            )
+        }
     }
 
     private fun beginRequest() {
