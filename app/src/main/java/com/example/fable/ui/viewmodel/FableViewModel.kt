@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.fable.domain.model.Chapter
 import com.example.fable.domain.model.GenreCategory
 import com.example.fable.domain.model.Story
+import com.example.fable.domain.model.StoryCatalog
 import com.example.fable.domain.model.UpdateFeed
 import com.example.fable.domain.model.Writer
 import com.example.fable.domain.repository.StoryRepository
@@ -16,11 +17,13 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 data class FableUiState(
     val stories: List<Story> = emptyList(),
     val shelfStories: List<Story> = emptyList(),
+    val providerStories: List<Story> = emptyList(),
     val selectedStory: Story? = null,
     val chapters: List<Chapter> = emptyList(),
     val selectedChapterNumber: Int? = null,
@@ -30,6 +33,8 @@ data class FableUiState(
     val writers: List<Writer> = emptyList(),
     val updateFeed: UpdateFeed? = null,
     val isRefreshing: Boolean = false,
+    val isSearchingProvider: Boolean = false,
+    val providerErrorMessage: String? = null,
     val errorMessage: String? = null
 )
 
@@ -40,6 +45,7 @@ class FableViewModel(
     val uiState: StateFlow<FableUiState> = mutableUiState.asStateFlow()
     private var selectedStoryJob: Job? = null
     private var chaptersJob: Job? = null
+    private var providerSearchJob: Job? = null
 
     init {
         repository.observeCatalog()
@@ -82,6 +88,40 @@ class FableViewModel(
             repository.toggleBookmark(story.id).onFailure { error ->
                 mutableUiState.update { it.copy(errorMessage = error.message) }
             }
+        }
+    }
+
+    fun searchProvider(catalog: StoryCatalog, query: String) {
+        providerSearchJob?.cancel()
+        if (catalog == StoryCatalog.FABLE) {
+            mutableUiState.update {
+                it.copy(providerStories = emptyList(), isSearchingProvider = false, providerErrorMessage = null)
+            }
+            return
+        }
+        mutableUiState.update {
+            it.copy(providerStories = emptyList(), isSearchingProvider = true, providerErrorMessage = null)
+        }
+        providerSearchJob = viewModelScope.launch {
+            delay(350)
+            val normalizedQuery = query.trim().take(200).takeIf(String::isNotEmpty)
+            val result = when (catalog) {
+                StoryCatalog.FABLE -> Result.success(emptyList())
+                StoryCatalog.GUTENBERG -> repository.searchGutenberg(search = normalizedQuery)
+                StoryCatalog.MANGA -> repository.searchManga(search = normalizedQuery)
+            }
+            result.fold(
+                onSuccess = { stories ->
+                    mutableUiState.update {
+                        it.copy(providerStories = stories, isSearchingProvider = false, providerErrorMessage = null)
+                    }
+                },
+                onFailure = { error ->
+                    mutableUiState.update {
+                        it.copy(providerStories = emptyList(), isSearchingProvider = false, providerErrorMessage = error.message)
+                    }
+                }
+            )
         }
     }
 

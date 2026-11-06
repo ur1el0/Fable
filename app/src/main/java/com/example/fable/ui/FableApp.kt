@@ -109,8 +109,12 @@ fun FableApp(modifier: Modifier = Modifier) {
                 1 -> ExploreScreen(
                     modifier = Modifier.padding(innerPadding),
                     stories = state.stories,
+                providerStories = state.providerStories,
                     genres = state.genres,
                     writers = state.writers,
+                isSearchingProvider = state.isSearchingProvider,
+                providerErrorMessage = state.providerErrorMessage,
+                onSearchProvider = viewModel::searchProvider,
                     onStorySelected = viewModel::openStory,
                     onToggleBookmark = viewModel::toggleBookmark
                 )
