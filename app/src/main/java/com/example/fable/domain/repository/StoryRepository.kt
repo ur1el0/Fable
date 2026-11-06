@@ -19,6 +19,7 @@ interface StoryRepository {
     suspend fun searchGutenberg(topic: String? = null, search: String? = null): Result<List<Story>>
     suspend fun searchManga(search: String? = null, limit: Int = 20, offset: Int = 0): Result<List<Story>>
     suspend fun publishStory(title: String, genre: String, synopsis: String, content: String): Result<Story>
+    suspend fun setShelfOwner(ownerId: String?)
     suspend fun toggleBookmark(storyId: String): Result<Boolean>
     suspend fun saveProgress(
         storyId: String,

@@ -11,9 +11,6 @@ interface StoryDao {
     @Query("SELECT * FROM stories ORDER BY updatedAtUtc DESC, title COLLATE NOCASE")
     fun observeCatalog(): Flow<List<StoryEntity>>
 
-    @Query("SELECT * FROM stories WHERE isBookmarked = 1 OR progressPercent > 0 OR isCompleted = 1 ORDER BY shelfUpdatedAtUtc DESC")
-    fun observeShelf(): Flow<List<StoryEntity>>
-
     @Query("SELECT * FROM stories WHERE id = :storyId LIMIT 1")
     fun observeStory(storyId: String): Flow<StoryEntity?>
 
@@ -59,15 +56,4 @@ interface StoryDao {
         upsertChapters(chapters)
     }
 
-    @Query("UPDATE stories SET isBookmarked = :isBookmarked, isCompleted = :isCompleted, progressPercent = :progressPercent, currentPage = :currentPage, lastReadChapterId = :chapterId, lastReadChapterNumber = :chapterNumber, shelfUpdatedAtUtc = :updatedAtUtc WHERE id = :storyId")
-    suspend fun updateShelfState(
-        storyId: String,
-        isBookmarked: Boolean,
-        isCompleted: Boolean,
-        progressPercent: Int,
-        currentPage: Int,
-        chapterId: String?,
-        chapterNumber: Int?,
-        updatedAtUtc: String
-    )
 }

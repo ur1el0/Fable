@@ -2,8 +2,10 @@ package com.example.fable.data.repository
 
 import com.example.fable.data.local.StoryDao
 import com.example.fable.data.local.StoryEntity
+import com.example.fable.data.local.ShelfStateEntity
 import com.example.fable.data.local.toDomain
 import com.example.fable.data.local.toEntity
+import com.example.fable.data.local.toShelfState
 import com.example.fable.data.remote.FableApiService
 import com.example.fable.data.remote.dto.CreateStoryRequestDto
 import com.example.fable.data.remote.dto.StoryDto
@@ -16,7 +18,14 @@ import com.example.fable.domain.model.UpdateFeed
 import com.example.fable.domain.model.Writer
 import com.example.fable.domain.repository.StoryRepository
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -26,14 +35,33 @@ class RoomStoryRepository(
     private val api: FableApiService,
     private val dao: StoryDao
 ) : StoryRepository {
+    private val activeShelfOwnerId = MutableStateFlow(GUEST_OWNER_ID)
+    private val shelfMutationMutex = Mutex()
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val currentShelfStates = activeShelfOwnerId
+        .flatMapLatest(dao::observeShelfStates)
+        .map { states -> states.associateBy(ShelfStateEntity::storyId) }
+        .distinctUntilChanged()
+
     override fun observeCatalog(): Flow<List<Story>> =
-        dao.observeCatalog().map { entities -> entities.map(StoryEntity::toDomain) }
+        combine(dao.observeCatalog(), currentShelfStates) { entities, states ->
+            entities.map { entity -> entity.toDomain(states[entity.id]) }
+        }
 
     override fun observeShelf(): Flow<List<Story>> =
-        dao.observeShelf().map { entities -> entities.map(StoryEntity::toDomain) }
+        combine(dao.observeCatalog(), currentShelfStates) { entities, states ->
+            entities.mapNotNull { entity ->
+                val shelfState = states[entity.id] ?: return@mapNotNull null
+                entity.toDomain(shelfState).takeIf {
+                    it.isBookmarked || it.progressPercent > 0 || it.isCompleted
+                }
+            }.sortedByDescending { states[it.id]?.updatedAtUtc.orEmpty() }
+        }
 
     override fun observeStory(storyId: String): Flow<Story?> =
-        dao.observeStory(storyId).map { it?.toDomain() }
+        combine(dao.observeStory(storyId), currentShelfStates) { entity, states ->
+            entity?.toDomain(states[storyId])
+        }
 
     override fun observeChapters(storyId: String): Flow<List<Chapter>> =
         dao.observeChapters(storyId).map { entities -> entities.map { it.toDomain() } }
@@ -123,6 +151,11 @@ class RoomStoryRepository(
         remote.toDomain()
     }
 
+    override suspend fun setShelfOwner(ownerId: String?) {
+        val nextOwnerId = ownerId?.takeIf(String::isNotBlank) ?: GUEST_OWNER_ID
+        shelfMutationMutex.withLock { activeShelfOwnerId.value = nextOwnerId }
+    }
+
     private suspend fun persistStories(remote: List<StoryDto>) {
         if (remote.isEmpty()) return
         val existing = dao.getStories(remote.map { it.id }).associateBy(StoryEntity::id)
@@ -130,19 +163,18 @@ class RoomStoryRepository(
     }
 
     override suspend fun toggleBookmark(storyId: String): Result<Boolean> = runCatching {
-        val story = requireNotNull(dao.getStory(storyId)) { "Story is not cached." }
-        val bookmarked = !story.isBookmarked
-        dao.updateShelfState(
-            storyId = storyId,
-            isBookmarked = bookmarked,
-            isCompleted = story.isCompleted,
-            progressPercent = story.progressPercent,
-            currentPage = story.currentPage,
-            chapterId = story.lastReadChapterId,
-            chapterNumber = story.lastReadChapterNumber,
-            updatedAtUtc = currentUtcTimestamp()
-        )
-        bookmarked
+        shelfMutationMutex.withLock {
+            val ownerId = activeShelfOwnerId.value
+            val story = requireNotNull(dao.getStory(storyId)) { "Story is not cached." }
+            val previous = dao.getShelfState(ownerId, storyId)
+                ?: if (ownerId == GUEST_OWNER_ID) story.toShelfState(ownerId) else emptyShelfState(ownerId, storyId)
+            val updated = previous.copy(
+                isBookmarked = !previous.isBookmarked,
+                updatedAtUtc = currentUtcTimestamp()
+            )
+            dao.upsertShelfState(updated)
+            updated.isBookmarked
+        }
     }
 
     override suspend fun saveProgress(
@@ -152,18 +184,23 @@ class RoomStoryRepository(
         chapterId: String?,
         chapterNumber: Int?
     ): Result<Unit> = runCatching {
-        val story = requireNotNull(dao.getStory(storyId)) { "Story is not cached." }
-        val progress = progressPercent.coerceIn(0, 100)
-        dao.updateShelfState(
-            storyId = storyId,
-            isBookmarked = story.isBookmarked,
-            isCompleted = story.isCompleted || progress == 100,
-            progressPercent = progress,
-            currentPage = currentPage.coerceAtLeast(1),
-            chapterId = chapterId,
-            chapterNumber = chapterNumber,
-            updatedAtUtc = currentUtcTimestamp()
-        )
+        shelfMutationMutex.withLock {
+            val ownerId = activeShelfOwnerId.value
+            val story = requireNotNull(dao.getStory(storyId)) { "Story is not cached." }
+            val previous = dao.getShelfState(ownerId, storyId)
+                ?: if (ownerId == GUEST_OWNER_ID) story.toShelfState(ownerId) else emptyShelfState(ownerId, storyId)
+            val progress = progressPercent.coerceIn(0, 100)
+            dao.upsertShelfState(
+                previous.copy(
+                    isCompleted = previous.isCompleted || progress == 100,
+                    progressPercent = progress,
+                    currentPage = currentPage.coerceAtLeast(1),
+                    lastReadChapterId = chapterId,
+                    lastReadChapterNumber = chapterNumber,
+                    updatedAtUtc = currentUtcTimestamp()
+                )
+            )
+        }
     }
 
     override suspend fun fetchGenres(): List<GenreCategory> = api.fetchGenres().map { it.toDomain() }
@@ -187,4 +224,20 @@ class RoomStoryRepository(
     ).apply {
         timeZone = TimeZone.getTimeZone("UTC")
     }.format(Date())
+
+    private fun emptyShelfState(ownerId: String, storyId: String) = ShelfStateEntity(
+        ownerId = ownerId,
+        storyId = storyId,
+        isBookmarked = false,
+        isCompleted = false,
+        progressPercent = 0,
+        currentPage = 1,
+        lastReadChapterId = null,
+        lastReadChapterNumber = null,
+        updatedAtUtc = currentUtcTimestamp()
+    )
+
+    private companion object {
+        const val GUEST_OWNER_ID = "guest"
+    }
 }

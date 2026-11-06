@@ -42,6 +42,27 @@ fun StoryEntity.toDomain() = Story(
     lastReadChapterNumber = lastReadChapterNumber
 )
 
+fun StoryEntity.toDomain(shelfState: ShelfStateEntity?): Story = toDomain().copy(
+    isBookmarked = shelfState?.isBookmarked ?: false,
+    isCompleted = shelfState?.isCompleted ?: false,
+    progressPercent = shelfState?.progressPercent ?: 0,
+    currentPage = shelfState?.currentPage ?: 1,
+    lastReadChapterId = shelfState?.lastReadChapterId,
+    lastReadChapterNumber = shelfState?.lastReadChapterNumber
+)
+
+fun StoryEntity.toShelfState(ownerId: String): ShelfStateEntity = ShelfStateEntity(
+    ownerId = ownerId,
+    storyId = id,
+    isBookmarked = isBookmarked,
+    isCompleted = isCompleted,
+    progressPercent = progressPercent,
+    currentPage = currentPage,
+    lastReadChapterId = lastReadChapterId,
+    lastReadChapterNumber = lastReadChapterNumber,
+    updatedAtUtc = shelfUpdatedAtUtc
+)
+
 fun StoryDto.toEntity(previous: StoryEntity? = null): StoryEntity = StoryEntity(
     id = id,
     title = title,
