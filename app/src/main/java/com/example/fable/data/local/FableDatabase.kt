@@ -20,6 +20,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 @TypeConverters(FableTypeConverters::class)
 abstract class FableDatabase : RoomDatabase() {
     abstract fun storyDao(): StoryDao
+    abstract fun readingStatsDao(): ReadingStatsDao
 
     companion object {
         val MIGRATION_1_2 = object : Migration(1, 2) {
