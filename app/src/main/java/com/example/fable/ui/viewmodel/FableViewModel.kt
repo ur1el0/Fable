@@ -3,6 +3,7 @@ package com.example.fable.ui.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.example.fable.domain.model.Chapter
 import com.example.fable.domain.model.GenreCategory
 import com.example.fable.domain.model.Story
 import com.example.fable.domain.model.UpdateFeed
@@ -14,11 +15,17 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 data class FableUiState(
     val stories: List<Story> = emptyList(),
     val shelfStories: List<Story> = emptyList(),
+    val selectedStory: Story? = null,
+    val chapters: List<Chapter> = emptyList(),
+    val selectedChapterNumber: Int? = null,
+    val isLoadingStory: Boolean = false,
+    val isReaderOpen: Boolean = false,
     val genres: List<GenreCategory> = emptyList(),
     val writers: List<Writer> = emptyList(),
     val updateFeed: UpdateFeed? = null,
@@ -31,6 +38,8 @@ class FableViewModel(
 ) : ViewModel() {
     private val mutableUiState = MutableStateFlow(FableUiState())
     val uiState: StateFlow<FableUiState> = mutableUiState.asStateFlow()
+    private var selectedStoryJob: Job? = null
+    private var chaptersJob: Job? = null
 
     init {
         repository.observeCatalog()
@@ -74,6 +83,101 @@ class FableViewModel(
                 mutableUiState.update { it.copy(errorMessage = error.message) }
             }
         }
+    }
+
+    fun openStory(story: Story) {
+        selectedStoryJob?.cancel()
+        chaptersJob?.cancel()
+        mutableUiState.update {
+            it.copy(
+                selectedStory = story,
+                chapters = emptyList(),
+                selectedChapterNumber = story.lastReadChapterNumber,
+                isLoadingStory = true,
+                isReaderOpen = false,
+                errorMessage = null
+            )
+        }
+        selectedStoryJob = repository.observeStory(story.id)
+            .onEach { cached -> if (cached != null) mutableUiState.update { it.copy(selectedStory = cached) } }
+            .launchIn(viewModelScope)
+        chaptersJob = repository.observeChapters(story.id)
+            .onEach { chapters -> mutableUiState.update { it.copy(chapters = chapters) } }
+            .launchIn(viewModelScope)
+        viewModelScope.launch {
+            repository.refreshStory(story.id).onFailure(::setError)
+            repository.refreshChapters(story.id).onFailure(::setError)
+            mutableUiState.update { it.copy(isLoadingStory = false) }
+        }
+    }
+
+    fun startReading(chapterNumber: Int? = null) {
+        val state = mutableUiState.value
+        val story = state.selectedStory ?: return
+        val number = chapterNumber
+            ?: state.selectedChapterNumber
+            ?: state.chapters.firstOrNull()?.chapterNumber
+            ?: 1
+        mutableUiState.update { it.copy(isReaderOpen = true, selectedChapterNumber = number) }
+        loadChapter(story.id, number)
+    }
+
+    fun selectChapter(chapterNumber: Int) {
+        val story = mutableUiState.value.selectedStory ?: return
+        mutableUiState.update { it.copy(selectedChapterNumber = chapterNumber) }
+        loadChapter(story.id, chapterNumber)
+    }
+
+    fun closeStory() {
+        selectedStoryJob?.cancel()
+        chaptersJob?.cancel()
+        mutableUiState.update {
+            it.copy(
+                selectedStory = null,
+                chapters = emptyList(),
+                selectedChapterNumber = null,
+                isLoadingStory = false,
+                isReaderOpen = false
+            )
+        }
+    }
+
+    fun navigateBackFromStory() {
+        if (mutableUiState.value.isReaderOpen) {
+            mutableUiState.update { it.copy(isReaderOpen = false) }
+        } else {
+            closeStory()
+        }
+    }
+
+    fun saveReadingProgress(progressPercent: Int, chapterNumber: Int) {
+        val story = mutableUiState.value.selectedStory ?: return
+        val page = if (story.totalPages > 0) {
+            (story.totalPages * progressPercent.coerceIn(0, 100) / 100).coerceAtLeast(1)
+        } else {
+            chapterNumber.coerceAtLeast(1)
+        }
+        viewModelScope.launch {
+            repository.saveProgress(
+                storyId = story.id,
+                progressPercent = progressPercent,
+                currentPage = page,
+                chapterId = mutableUiState.value.chapters
+                    .firstOrNull { it.chapterNumber == chapterNumber }?.id,
+                chapterNumber = chapterNumber
+            ).onFailure(::setError)
+        }
+    }
+
+    private fun loadChapter(storyId: String, chapterNumber: Int) {
+        if (mutableUiState.value.chapters.none { it.chapterNumber == chapterNumber }) return
+        viewModelScope.launch {
+            repository.refreshChapter(storyId, chapterNumber).onFailure(::setError)
+        }
+    }
+
+    private fun setError(error: Throwable) {
+        mutableUiState.update { it.copy(errorMessage = error.message) }
     }
 
     class Factory(private val repository: StoryRepository) : ViewModelProvider.Factory {

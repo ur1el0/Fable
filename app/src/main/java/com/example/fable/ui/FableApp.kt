@@ -14,6 +14,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -28,6 +29,8 @@ import com.example.fable.FableApplication
 import com.example.fable.ui.screens.ExploreScreen
 import com.example.fable.ui.screens.LibraryScreen
 import com.example.fable.ui.screens.ShelfScreen
+import com.example.fable.ui.screens.StoryDetailScreen
+import com.example.fable.ui.screens.StoryReaderScreen
 import com.example.fable.ui.screens.WriteScreen
 import com.example.fable.ui.viewmodel.FableViewModel
 
@@ -45,6 +48,7 @@ fun FableApp(modifier: Modifier = Modifier) {
         factory = FableViewModel.Factory(application.storyRepository)
     )
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val selectedStory = state.selectedStory
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -53,42 +57,71 @@ fun FableApp(modifier: Modifier = Modifier) {
         containerColor = MaterialTheme.colorScheme.background,
         snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {
-            NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
-                tabs.forEachIndexed { index, (label, icon) ->
-                    NavigationBarItem(
-                        selected = selectedTab == index,
-                        onClick = { selectedTab = index },
-                        icon = { Icon(icon, contentDescription = null) },
-                        label = { Text(label) }
-                    )
+            if (selectedStory == null) {
+                NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
+                    tabs.forEachIndexed { index, (label, icon) ->
+                        NavigationBarItem(
+                            selected = selectedTab == index,
+                            onClick = { selectedTab = index },
+                            icon = { Icon(icon, contentDescription = null) },
+                            label = { Text(label) }
+                        )
+                    }
                 }
             }
-        }
+        },
     ) { innerPadding ->
-        when (selectedTab) {
-            0 -> LibraryScreen(
+        BackHandler(enabled = selectedStory != null, onBack = viewModel::navigateBackFromStory)
+        when {
+            selectedStory != null && state.isReaderOpen -> StoryReaderScreen(
                 modifier = Modifier.padding(innerPadding),
-                stories = state.stories,
-                genres = state.genres,
-                updateFeed = state.updateFeed,
-                isRefreshing = state.isRefreshing,
+                story = selectedStory,
+                chapters = state.chapters,
+                chapterNumber = state.selectedChapterNumber ?: state.chapters.firstOrNull()?.chapterNumber ?: 1,
                 errorMessage = state.errorMessage,
-                onRefresh = viewModel::refreshCatalog,
-                onToggleBookmark = viewModel::toggleBookmark
+                onBack = viewModel::navigateBackFromStory,
+                onSelectChapter = viewModel::selectChapter,
+                onSaveProgress = viewModel::saveReadingProgress
             )
-            1 -> ExploreScreen(
+            selectedStory != null -> StoryDetailScreen(
                 modifier = Modifier.padding(innerPadding),
-                stories = state.stories,
-                genres = state.genres,
-                writers = state.writers,
-                onToggleBookmark = viewModel::toggleBookmark
+                story = selectedStory,
+                chapters = state.chapters,
+                isLoading = state.isLoadingStory,
+                errorMessage = state.errorMessage,
+                onBack = viewModel::closeStory,
+                onRead = viewModel::startReading,
+                onSelectChapter = viewModel::startReading,
+                onToggleBookmark = { viewModel.toggleBookmark(selectedStory) }
             )
-            2 -> WriteScreen(modifier = Modifier.padding(innerPadding))
-            else -> ShelfScreen(
-                modifier = Modifier.padding(innerPadding),
-                stories = state.shelfStories,
-                onToggleBookmark = viewModel::toggleBookmark
-            )
+            else -> when (selectedTab) {
+                0 -> LibraryScreen(
+                    modifier = Modifier.padding(innerPadding),
+                    stories = state.stories,
+                    genres = state.genres,
+                    updateFeed = state.updateFeed,
+                    isRefreshing = state.isRefreshing,
+                    errorMessage = state.errorMessage,
+                    onRefresh = viewModel::refreshCatalog,
+                    onStorySelected = viewModel::openStory,
+                    onToggleBookmark = viewModel::toggleBookmark
+                )
+                1 -> ExploreScreen(
+                    modifier = Modifier.padding(innerPadding),
+                    stories = state.stories,
+                    genres = state.genres,
+                    writers = state.writers,
+                    onStorySelected = viewModel::openStory,
+                    onToggleBookmark = viewModel::toggleBookmark
+                )
+                2 -> WriteScreen(modifier = Modifier.padding(innerPadding))
+                else -> ShelfScreen(
+                    modifier = Modifier.padding(innerPadding),
+                    stories = state.shelfStories,
+                    onStorySelected = viewModel::openStory,
+                    onToggleBookmark = viewModel::toggleBookmark
+                )
+            }
         }
     }
 }
