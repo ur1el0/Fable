@@ -51,6 +51,29 @@ class ShelfStateMigrationTest {
         migrated.close()
     }
 
+    @Test
+    fun createsAccountScopedReadingSessionAndStatsTables() {
+        helper.createDatabase(TEST_DATABASE, 2).close()
+
+        val migrated = helper.runMigrationsAndValidate(
+            TEST_DATABASE,
+            3,
+            true,
+            FableDatabase.MIGRATION_2_3
+        )
+        migrated.query(
+            "SELECT name FROM sqlite_master WHERE type = 'table' " +
+                "AND name IN ('reading_sessions', 'reading_stats') ORDER BY name"
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("reading_sessions", cursor.getString(0))
+            assertTrue(cursor.moveToNext())
+            assertEquals("reading_stats", cursor.getString(0))
+            assertFalse(cursor.moveToNext())
+        }
+        migrated.close()
+    }
+
     private fun insertStory(
         database: androidx.sqlite.db.SupportSQLiteDatabase,
         storyId: String,
