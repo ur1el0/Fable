@@ -50,6 +50,17 @@ data class StoryDto(
 )
 
 @Serializable
+data class CreateStoryRequestDto(
+    val title: String,
+    val genre: String,
+    val synopsis: String,
+    val content: String,
+    val chapter: String? = null,
+    val readTimeMinutes: Int = 0,
+    val contentFormat: String = "PROSE"
+)
+
+@Serializable
 data class GenreDto(
     val id: String = "",
     val name: String = "",

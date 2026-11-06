@@ -3,6 +3,7 @@ package com.example.fable.data.remote
 import com.example.fable.data.remote.dto.ApiErrorDto
 import com.example.fable.data.remote.dto.AuthResponseDto
 import com.example.fable.data.remote.dto.ChapterDto
+import com.example.fable.data.remote.dto.CreateStoryRequestDto
 import com.example.fable.data.remote.dto.GenreDto
 import com.example.fable.data.remote.dto.LoginRequestDto
 import com.example.fable.data.remote.dto.PasswordResetAcceptedDto
@@ -96,6 +97,9 @@ class FableApiService(
 
     suspend fun fetchUpdateFeed(): UpdateFeedDto = get(url("updates"))
 
+    suspend fun createStory(request: CreateStoryRequestDto): StoryDto =
+        postJson(url("stories"), request, accessTokenProvider())
+
     suspend fun register(request: RegisterRequestDto): AuthResponseDto =
         postJson(url("auth", "register"), request)
 
@@ -140,11 +144,17 @@ class FableApiService(
         }
     }
 
-    private suspend inline fun <reified T, reified B> postJson(url: HttpUrl, body: B): T =
+    private suspend inline fun <reified T, reified B> postJson(
+        url: HttpUrl,
+        body: B,
+        accessToken: String? = null
+    ): T =
         withContext(Dispatchers.IO) {
             val requestBody = json.encodeToString(body)
                 .toRequestBody("application/json; charset=utf-8".toMediaType())
-            val request = Request.Builder().url(url).post(requestBody).build()
+            val requestBuilder = Request.Builder().url(url).post(requestBody)
+            accessToken?.takeIf(String::isNotBlank)?.let { requestBuilder.header("Authorization", "Bearer $it") }
+            val request = requestBuilder.build()
             client.newCall(request).execute().use { response ->
                 val payload = response.body?.string().orEmpty()
                 if (!response.isSuccessful) {
