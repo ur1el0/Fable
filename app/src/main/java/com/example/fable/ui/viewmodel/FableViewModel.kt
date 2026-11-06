@@ -88,9 +88,11 @@ class FableViewModel(
 
     fun toggleBookmark(story: Story) {
         viewModelScope.launch {
-            repository.toggleBookmark(story.id).onFailure { error ->
+            val result = repository.toggleBookmark(story.id)
+            result.onFailure { error ->
                 mutableUiState.update { it.copy(errorMessage = error.message) }
             }
+            if (result.isSuccess) repository.syncShelfState(story.id)
         }
     }
 
@@ -152,7 +154,10 @@ class FableViewModel(
     }
 
     fun setShelfOwner(ownerId: String?) {
-        viewModelScope.launch { repository.setShelfOwner(ownerId) }
+        viewModelScope.launch {
+            repository.setShelfOwner(ownerId)
+            if (!ownerId.isNullOrBlank()) repository.syncShelf()
+        }
     }
 
     fun openStory(story: Story) {
@@ -228,14 +233,16 @@ class FableViewModel(
             chapterNumber.coerceAtLeast(1)
         }
         viewModelScope.launch {
-            repository.saveProgress(
+            val result = repository.saveProgress(
                 storyId = story.id,
                 progressPercent = progressPercent,
                 currentPage = page,
                 chapterId = mutableUiState.value.chapters
                     .firstOrNull { it.chapterNumber == chapterNumber }?.id,
                 chapterNumber = chapterNumber
-            ).onFailure(::setError)
+            )
+            result.onFailure(::setError)
+            if (result.isSuccess) repository.syncShelfState(story.id)
         }
     }
 
