@@ -5,9 +5,14 @@ import com.example.fable.data.remote.dto.AuthResponseDto
 import com.example.fable.data.remote.dto.ChapterDto
 import com.example.fable.data.remote.dto.GenreDto
 import com.example.fable.data.remote.dto.LoginRequestDto
+import com.example.fable.data.remote.dto.PasswordResetAcceptedDto
+import com.example.fable.data.remote.dto.PasswordResetConfirmRequestDto
+import com.example.fable.data.remote.dto.PasswordResetRequestDto
+import com.example.fable.data.remote.dto.ProfileUpdateRequestDto
 import com.example.fable.data.remote.dto.RegisterRequestDto
 import com.example.fable.data.remote.dto.StoryDto
 import com.example.fable.data.remote.dto.UpdateFeedDto
+import com.example.fable.data.remote.dto.UserDto
 import com.example.fable.data.remote.dto.WriterDto
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -97,6 +102,19 @@ class FableApiService(
     suspend fun login(request: LoginRequestDto): AuthResponseDto =
         postJson(url("auth", "login"), request)
 
+    suspend fun fetchCurrentUser(): UserDto = get(url("auth", "me"))
+
+    suspend fun updateProfile(request: ProfileUpdateRequestDto): UserDto =
+        patchJson(url("auth", "me"), request, accessTokenProvider())
+
+    suspend fun logout() = postNoContent(url("auth", "logout"), accessTokenProvider())
+
+    suspend fun requestPasswordReset(request: PasswordResetRequestDto): PasswordResetAcceptedDto =
+        postJson(url("auth", "password-reset", "request"), request)
+
+    suspend fun confirmPasswordReset(request: PasswordResetConfirmRequestDto) =
+        postNoContentWithBody(url("auth", "password-reset", "confirm"), request, null)
+
     private fun url(vararg segments: String, query: HttpUrl.Builder.() -> Unit = {}): HttpUrl =
         (baseUrl ?: throw FableApiException(0, "Fable API URL is not configured."))
             .newBuilder()
@@ -138,6 +156,60 @@ class FableApiService(
                 json.decodeFromString<T>(payload)
             }
         }
+
+    private suspend inline fun <reified T, reified B> patchJson(
+        url: HttpUrl,
+        body: B,
+        accessToken: String?
+    ): T = withContext(Dispatchers.IO) {
+        val requestBody = json.encodeToString(body)
+            .toRequestBody("application/json; charset=utf-8".toMediaType())
+        val requestBuilder = Request.Builder().url(url).patch(requestBody)
+        accessToken?.takeIf(String::isNotBlank)?.let { requestBuilder.header("Authorization", "Bearer $it") }
+        client.newCall(requestBuilder.build()).execute().use { response ->
+            val payload = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                val detail = runCatching { json.decodeFromString<ApiErrorDto>(payload).detail }
+                    .getOrNull()
+                    ?.takeIf(String::isNotBlank)
+                throw FableApiException(response.code, detail ?: "The server could not complete the request.")
+            }
+            json.decodeFromString<T>(payload)
+        }
+    }
+
+    private suspend fun postNoContent(url: HttpUrl, accessToken: String?) = withContext(Dispatchers.IO) {
+        val requestBuilder = Request.Builder().url(url).post(ByteArray(0).toRequestBody())
+        accessToken?.takeIf(String::isNotBlank)?.let { requestBuilder.header("Authorization", "Bearer $it") }
+        client.newCall(requestBuilder.build()).execute().use { response ->
+            if (!response.isSuccessful) {
+                val payload = response.body?.string().orEmpty()
+                val detail = runCatching { json.decodeFromString<ApiErrorDto>(payload).detail }
+                    .getOrNull()
+                    ?.takeIf(String::isNotBlank)
+                throw FableApiException(response.code, detail ?: "The server could not complete the request.")
+            }
+        }
+    }
+
+    private suspend inline fun <reified B> postNoContentWithBody(
+        url: HttpUrl,
+        body: B,
+        accessToken: String?
+    ) = withContext(Dispatchers.IO) {
+        val requestBody = json.encodeToString(body).toRequestBody("application/json; charset=utf-8".toMediaType())
+        val requestBuilder = Request.Builder().url(url).post(requestBody)
+        accessToken?.takeIf(String::isNotBlank)?.let { requestBuilder.header("Authorization", "Bearer $it") }
+        client.newCall(requestBuilder.build()).execute().use { response ->
+            if (!response.isSuccessful) {
+                val payload = response.body?.string().orEmpty()
+                val detail = runCatching { json.decodeFromString<ApiErrorDto>(payload).detail }
+                    .getOrNull()
+                    ?.takeIf(String::isNotBlank)
+                throw FableApiException(response.code, detail ?: "The server could not complete the request.")
+            }
+        }
+    }
 }
 
 class FableApiException(val statusCode: Int, message: String) : Exception(message)

@@ -52,6 +52,9 @@ data class PasswordResetConfirmRequestDto(
     val newPassword: String
 )
 
+@Serializable
+data class PasswordResetAcceptedDto(val message: String = "")
+
 fun UserDto.toDomain() = UserProfile(
     id = id,
     email = email,
