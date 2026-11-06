@@ -8,6 +8,8 @@ import com.example.fable.data.local.toEntity
 import com.example.fable.data.local.toShelfState
 import com.example.fable.data.remote.FableApiService
 import com.example.fable.data.remote.dto.CreateStoryRequestDto
+import com.example.fable.data.remote.dto.ShelfSyncItemDto
+import com.example.fable.data.remote.dto.ShelfSyncRequestDto
 import com.example.fable.data.remote.dto.StoryDto
 import com.example.fable.data.remote.dto.toDomain
 import com.example.fable.domain.model.Chapter
@@ -26,17 +28,17 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
-import java.util.TimeZone
+import java.time.Instant
 
 class RoomStoryRepository(
     private val api: FableApiService,
-    private val dao: StoryDao
+    private val dao: StoryDao,
+    private val deviceId: String,
+    private val accessTokenProvider: () -> String?
 ) : StoryRepository {
     private val activeShelfOwnerId = MutableStateFlow(GUEST_OWNER_ID)
     private val shelfMutationMutex = Mutex()
+    private val shelfSyncMutex = Mutex()
     @OptIn(ExperimentalCoroutinesApi::class)
     private val currentShelfStates = activeShelfOwnerId
         .flatMapLatest(dao::observeShelfStates)
@@ -156,6 +158,46 @@ class RoomStoryRepository(
         shelfMutationMutex.withLock { activeShelfOwnerId.value = nextOwnerId }
     }
 
+    override suspend fun syncShelf(): Result<Unit> = runCatching {
+        val ownerId = activeShelfOwnerId.value
+        if (ownerId == GUEST_OWNER_ID) return@runCatching
+        val token = accessTokenProvider()?.takeIf(String::isNotBlank) ?: return@runCatching
+
+        shelfSyncMutex.withLock sync@{
+            val remoteItems = api.fetchShelf(deviceId, token)
+            if (!isCurrentShelfSession(ownerId, token)) return@sync
+
+            cacheMissingShelfStories(remoteItems, ownerId)
+            if (!isCurrentShelfSession(ownerId, token)) return@sync
+
+            val plan = shelfMutationMutex.withLock state@{
+                if (!isCurrentShelfSession(ownerId, token)) return@state null
+                val localStates = dao.getShelfStates(ownerId)
+                planShelfSync(ownerId, localStates, remoteItems).also { merge ->
+                    dao.upsertShelfStates(merge.serverWins)
+                }
+            } ?: return@sync
+
+            if (plan.upload.isEmpty()) return@sync
+            val response = api.syncShelf(ShelfSyncRequestDto(deviceId, plan.upload), token)
+            if (!isCurrentShelfSession(ownerId, token)) return@sync
+
+            shelfMutationMutex.withLock state@{
+                if (!isCurrentShelfSession(ownerId, token)) return@state
+                val currentStates = dao.getShelfStates(ownerId).associateBy(ShelfStateEntity::storyId)
+                val reconciledStates = response.reconciledItems.mapNotNull { remote ->
+                    val current = currentStates[remote.storyId]
+                    if (current == null || !isNewer(current.updatedAtUtc, remote.updatedAtUtc)) {
+                        remote.toEntity(ownerId, previous = current)
+                    } else {
+                        null
+                    }
+                }
+                dao.upsertShelfStates(reconciledStates)
+            }
+        }
+    }
+
     private suspend fun persistStories(remote: List<StoryDto>) {
         if (remote.isEmpty()) return
         val existing = dao.getStories(remote.map { it.id }).associateBy(StoryEntity::id)
@@ -218,12 +260,40 @@ class RoomStoryRepository(
         updates
     }
 
-    private fun currentUtcTimestamp(): String = SimpleDateFormat(
-        "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
-        Locale.US
-    ).apply {
-        timeZone = TimeZone.getTimeZone("UTC")
-    }.format(Date())
+    private suspend fun cacheMissingShelfStories(
+        items: List<ShelfSyncItemDto>,
+        ownerId: String
+    ) {
+        val storyIds = items.mapTo(mutableSetOf()) { it.storyId }
+        if (storyIds.isEmpty()) return
+        val cachedIds = mutableSetOf<String>()
+        storyIds.chunked(500).forEach { batch ->
+            cachedIds += dao.getStories(batch).map(StoryEntity::id)
+        }
+
+        storyIds.filterNot(cachedIds::contains).forEach { storyId ->
+            if (activeShelfOwnerId.value != ownerId) return
+            val remote = runCatching {
+                val gutenbergId = gutenbergIdForStoryId(storyId)
+                if (gutenbergId != null) api.fetchGutenbergStory(gutenbergId) else api.fetchStory(storyId)
+            }.getOrNull() ?: return@forEach
+            val existing = dao.getStory(remote.id)
+            dao.upsertStories(listOf(remote.toEntity(existing)))
+        }
+    }
+
+    private fun gutenbergIdForStoryId(storyId: String): Int? {
+        val compactId = storyId.replace("-", "")
+        if (compactId.length != 32 || compactId.take(24).any { it != '0' }) return null
+        return compactId.takeLast(8).toLongOrNull(16)
+            ?.takeIf { it in 1..Int.MAX_VALUE.toLong() }
+            ?.toInt()
+    }
+
+    private fun isCurrentShelfSession(ownerId: String, token: String): Boolean =
+        activeShelfOwnerId.value == ownerId && accessTokenProvider() == token
+
+    private fun currentUtcTimestamp(): String = Instant.now().toString()
 
     private fun emptyShelfState(ownerId: String, storyId: String) = ShelfStateEntity(
         ownerId = ownerId,

@@ -20,6 +20,7 @@ interface StoryRepository {
     suspend fun searchManga(search: String? = null, limit: Int = 20, offset: Int = 0): Result<List<Story>>
     suspend fun publishStory(title: String, genre: String, synopsis: String, content: String): Result<Story>
     suspend fun setShelfOwner(ownerId: String?)
+    suspend fun syncShelf(): Result<Unit>
     suspend fun toggleBookmark(storyId: String): Result<Boolean>
     suspend fun saveProgress(
         storyId: String,

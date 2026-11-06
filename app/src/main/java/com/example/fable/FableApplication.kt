@@ -38,7 +38,9 @@ class FableApplication : Application() {
         )
         storyRepository = RoomStoryRepository(
             api = apiService,
-            dao = database.storyDao()
+            dao = database.storyDao(),
+            deviceId = deviceIdentityStore.getOrCreateDeviceId(),
+            accessTokenProvider = sessionStore::readAccessToken
         )
         accountRepository = RemoteAccountRepository(apiService, sessionStore)
     }
