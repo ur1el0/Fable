@@ -18,6 +18,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -26,6 +27,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.fable.FableApplication
+import com.example.fable.ui.screens.AccountScreen
 import com.example.fable.ui.screens.ExploreScreen
 import com.example.fable.ui.screens.LibraryScreen
 import com.example.fable.ui.screens.ShelfScreen
@@ -33,6 +35,7 @@ import com.example.fable.ui.screens.StoryDetailScreen
 import com.example.fable.ui.screens.StoryReaderScreen
 import com.example.fable.ui.screens.WriteScreen
 import com.example.fable.ui.viewmodel.FableViewModel
+import com.example.fable.ui.viewmodel.AccountViewModel
 
 private val tabs = listOf(
     "Library" to Icons.Outlined.Book,
@@ -48,7 +51,12 @@ fun FableApp(modifier: Modifier = Modifier) {
         factory = FableViewModel.Factory(application.storyRepository)
     )
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val accountViewModel: AccountViewModel = viewModel(
+        factory = AccountViewModel.Factory(application.accountRepository)
+    )
+    val accountState by accountViewModel.uiState.collectAsStateWithLifecycle()
     val selectedStory = state.selectedStory
+    var accountOpen by rememberSaveable { mutableStateOf(false) }
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -57,7 +65,7 @@ fun FableApp(modifier: Modifier = Modifier) {
         containerColor = MaterialTheme.colorScheme.background,
         snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {
-            if (selectedStory == null) {
+            if (selectedStory == null && !accountOpen) {
                 NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
                     tabs.forEachIndexed { index, (label, icon) ->
                         NavigationBarItem(
@@ -71,8 +79,20 @@ fun FableApp(modifier: Modifier = Modifier) {
             }
         },
     ) { innerPadding ->
-        BackHandler(enabled = selectedStory != null, onBack = viewModel::navigateBackFromStory)
+        BackHandler(enabled = accountOpen, onBack = { accountOpen = false })
+        BackHandler(enabled = selectedStory != null && !accountOpen, onBack = viewModel::navigateBackFromStory)
         when {
+            accountOpen -> AccountScreen(
+                modifier = Modifier.padding(innerPadding),
+                state = accountState,
+                onBack = { accountOpen = false },
+                onSignIn = accountViewModel::signIn,
+                onRegister = accountViewModel::register,
+                onSaveProfile = accountViewModel::saveProfile,
+                onRequestPasswordReset = accountViewModel::requestPasswordReset,
+                onConfirmPasswordReset = accountViewModel::confirmPasswordReset,
+                onSignOut = accountViewModel::signOut
+            )
             selectedStory != null && state.isReaderOpen -> StoryReaderScreen(
                 modifier = Modifier.padding(innerPadding),
                 story = selectedStory,
@@ -103,18 +123,19 @@ fun FableApp(modifier: Modifier = Modifier) {
                     isRefreshing = state.isRefreshing,
                     errorMessage = state.errorMessage,
                     onRefresh = viewModel::refreshCatalog,
+                    onAccount = { accountOpen = true },
                     onStorySelected = viewModel::openStory,
                     onToggleBookmark = viewModel::toggleBookmark
                 )
                 1 -> ExploreScreen(
                     modifier = Modifier.padding(innerPadding),
                     stories = state.stories,
-                providerStories = state.providerStories,
+                    providerStories = state.providerStories,
                     genres = state.genres,
                     writers = state.writers,
-                isSearchingProvider = state.isSearchingProvider,
-                providerErrorMessage = state.providerErrorMessage,
-                onSearchProvider = viewModel::searchProvider,
+                    isSearchingProvider = state.isSearchingProvider,
+                    providerErrorMessage = state.providerErrorMessage,
+                    onSearchProvider = viewModel::searchProvider,
                     onStorySelected = viewModel::openStory,
                     onToggleBookmark = viewModel::toggleBookmark
                 )

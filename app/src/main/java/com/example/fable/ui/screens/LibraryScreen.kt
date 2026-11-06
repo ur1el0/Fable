@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Bookmark
 import androidx.compose.material.icons.outlined.BookmarkBorder
+import androidx.compose.material.icons.outlined.PersonOutline
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -60,6 +61,7 @@ fun LibraryScreen(
     isRefreshing: Boolean = false,
     errorMessage: String? = null,
     onRefresh: () -> Unit = {},
+    onAccount: () -> Unit = {},
     onStorySelected: (Story) -> Unit = {},
     onToggleBookmark: (Story) -> Unit = {}
 ) {
@@ -92,6 +94,9 @@ fun LibraryScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Text("Library", style = MaterialTheme.typography.displaySmall)
+                }
+                IconButton(onClick = onAccount, modifier = Modifier.size(48.dp)) {
+                    Icon(Icons.Outlined.PersonOutline, contentDescription = "Account")
                 }
                 IconButton(onClick = onRefresh, enabled = !isRefreshing, modifier = Modifier.size(48.dp)) {
                     Icon(Icons.Outlined.Refresh, contentDescription = "Refresh catalog")
