@@ -111,6 +111,10 @@ class FableApiService(
 
     suspend fun fetchCurrentUser(): UserDto = get(url("auth", "me"))
 
+    suspend fun fetchMyStories(
+        accessToken: String? = accessTokenProvider()
+    ): List<StoryDto> = get(url("auth", "me", "stories"), accessToken)
+
     suspend fun updateProfile(request: ProfileUpdateRequestDto): UserDto =
         patchJson(url("auth", "me"), request, accessTokenProvider())
 

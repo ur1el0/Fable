@@ -8,6 +8,7 @@ import com.example.fable.data.remote.dto.PasswordResetRequestDto
 import com.example.fable.data.remote.dto.ProfileUpdateRequestDto
 import com.example.fable.data.remote.dto.RegisterRequestDto
 import com.example.fable.data.remote.dto.toDomain
+import com.example.fable.domain.model.Story
 import com.example.fable.domain.model.UserProfile
 import com.example.fable.domain.repository.AccountRepository
 
@@ -19,6 +20,10 @@ class RemoteAccountRepository(
 
     override suspend fun currentUser(): Result<UserProfile> = runCatching {
         api.fetchCurrentUser().toDomain()
+    }
+
+    override suspend fun myStories(): Result<List<Story>> = runCatching {
+        api.fetchMyStories().map { it.toDomain() }
     }
 
     override suspend fun signIn(email: String, password: String): Result<UserProfile> = runCatching {
