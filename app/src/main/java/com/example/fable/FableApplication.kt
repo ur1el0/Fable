@@ -29,7 +29,7 @@ class FableApplication : Application() {
             applicationContext,
             FableDatabase::class.java,
             "fable.db"
-        ).build()
+        ).addMigrations(FableDatabase.MIGRATION_1_2).build()
         sessionStore = SecureSessionStore(applicationContext)
         deviceIdentityStore = DeviceIdentityStore(applicationContext)
         apiService = FableApiService(

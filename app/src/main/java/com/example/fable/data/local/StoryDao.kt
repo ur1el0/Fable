@@ -26,6 +26,21 @@ interface StoryDao {
     @Upsert
     suspend fun upsertStories(stories: List<StoryEntity>)
 
+    @Query("SELECT * FROM shelf_states WHERE ownerId = :ownerId")
+    fun observeShelfStates(ownerId: String): Flow<List<ShelfStateEntity>>
+
+    @Query("SELECT * FROM shelf_states WHERE ownerId = :ownerId")
+    suspend fun getShelfStates(ownerId: String): List<ShelfStateEntity>
+
+    @Query("SELECT * FROM shelf_states WHERE ownerId = :ownerId AND storyId = :storyId LIMIT 1")
+    suspend fun getShelfState(ownerId: String, storyId: String): ShelfStateEntity?
+
+    @Upsert
+    suspend fun upsertShelfState(state: ShelfStateEntity)
+
+    @Upsert
+    suspend fun upsertShelfStates(states: List<ShelfStateEntity>)
+
     @Query("SELECT * FROM chapters WHERE storyId = :storyId ORDER BY chapterNumber")
     fun observeChapters(storyId: String): Flow<List<ChapterEntity>>
 
