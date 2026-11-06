@@ -24,7 +24,8 @@ import okhttp3.RequestBody.Companion.toRequestBody
 class FableApiService(
     baseUrl: String,
     private val client: OkHttpClient = OkHttpClient(),
-    private val json: Json = Json { ignoreUnknownKeys = true }
+    private val json: Json = Json { ignoreUnknownKeys = true },
+    private val accessTokenProvider: () -> String? = { null }
 ) {
     private val baseUrl: HttpUrl? = baseUrl.takeIf(String::isNotBlank)?.toHttpUrlOrNull()
 
@@ -104,7 +105,11 @@ class FableApiService(
             .build()
 
     private suspend inline fun <reified T> get(url: HttpUrl): T = withContext(Dispatchers.IO) {
-        val request = Request.Builder().url(url).get().build()
+        val requestBuilder = Request.Builder().url(url).get()
+        accessTokenProvider()?.takeIf(String::isNotBlank)?.let { token ->
+            requestBuilder.header("Authorization", "Bearer $token")
+        }
+        val request = requestBuilder.build()
         client.newCall(request).execute().use { response ->
             val payload = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
