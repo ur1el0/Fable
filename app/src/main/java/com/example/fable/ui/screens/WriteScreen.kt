@@ -23,6 +23,10 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun WriteScreen(
     modifier: Modifier = Modifier,
+    isSignedIn: Boolean = true,
+    isPublishing: Boolean = false,
+    publishErrorMessage: String? = null,
+    onSignIn: () -> Unit = {},
     onPublish: (title: String, genre: String, synopsis: String, content: String) -> Unit = { _, _, _, _ -> }
 ) {
     var title by rememberSaveable { mutableStateOf("") }
@@ -40,10 +44,10 @@ fun WriteScreen(
             Text("Write", style = MaterialTheme.typography.displaySmall)
         }
         item {
-            OutlinedTextField(title, { title = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Story title") }, singleLine = true)
+            OutlinedTextField(title, { title = it.take(120) }, modifier = Modifier.fillMaxWidth(), label = { Text("Story title") }, singleLine = true)
         }
         item {
-            OutlinedTextField(genre, { genre = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Genre") }, singleLine = true)
+            OutlinedTextField(genre, { genre = it.take(50) }, modifier = Modifier.fillMaxWidth(), label = { Text("Genre") }, singleLine = true)
         }
         item {
             OutlinedTextField(
@@ -65,13 +69,30 @@ fun WriteScreen(
                 supportingText = { Text("${content.trim().split(Regex("\\s+")).count { word -> word.isNotEmpty() }} words", textAlign = TextAlign.End, modifier = Modifier.fillMaxWidth()) }
             )
         }
+        if (!isSignedIn) {
+            item {
+                Text("Sign in to publish a story.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        if (publishErrorMessage != null) {
+            item {
+                Text(publishErrorMessage, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            }
+        }
         item {
             Button(
-                onClick = { onPublish(title.trim(), genre.trim(), synopsis.trim(), content.trim()) },
-                enabled = title.isNotBlank() && genre.isNotBlank() && synopsis.isNotBlank() && content.isNotBlank(),
+                onClick = {
+                    if (isSignedIn) onPublish(title.trim(), genre.trim(), synopsis.trim(), content.trim())
+                    else onSignIn()
+                },
+                enabled = !isPublishing && (!isSignedIn || title.isNotBlank() && genre.isNotBlank() && synopsis.isNotBlank() && content.isNotBlank()),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text("Publish story")
+                Text(when {
+                    isPublishing -> "Publishing..."
+                    isSignedIn -> "Publish story"
+                    else -> "Sign in to publish"
+                })
             }
         }
     }
