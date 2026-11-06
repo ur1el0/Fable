@@ -5,6 +5,7 @@ import com.example.fable.data.local.StoryEntity
 import com.example.fable.data.local.toDomain
 import com.example.fable.data.local.toEntity
 import com.example.fable.data.remote.FableApiService
+import com.example.fable.data.remote.dto.CreateStoryRequestDto
 import com.example.fable.data.remote.dto.StoryDto
 import com.example.fable.data.remote.dto.toDomain
 import com.example.fable.domain.model.Chapter
@@ -95,6 +96,28 @@ class RoomStoryRepository(
         val remote = api.fetchMangaStories(search = search, limit = limit.coerceIn(1, 50), offset = offset.coerceAtLeast(0))
         persistStories(remote)
         remote.map { it.toDomain() }
+    }
+
+    override suspend fun publishStory(
+        title: String,
+        genre: String,
+        synopsis: String,
+        content: String
+    ): Result<Story> = runCatching {
+        val readTimeMinutes = (content.trim().split(Regex("\\s+")).size / 200).coerceAtLeast(1)
+        val remote = api.createStory(
+            CreateStoryRequestDto(
+                title = title.trim(),
+                genre = genre.trim(),
+                chapter = "Chapter 1",
+                synopsis = synopsis.trim(),
+                content = content.trim(),
+                readTimeMinutes = readTimeMinutes
+            )
+        )
+        val existing = dao.getStory(remote.id)
+        dao.upsertStories(listOf(remote.toEntity(existing)))
+        remote.toDomain()
     }
 
     private suspend fun persistStories(remote: List<StoryDto>) {
