@@ -11,6 +11,9 @@ import com.example.fable.data.remote.dto.PasswordResetConfirmRequestDto
 import com.example.fable.data.remote.dto.PasswordResetRequestDto
 import com.example.fable.data.remote.dto.ProfileUpdateRequestDto
 import com.example.fable.data.remote.dto.RegisterRequestDto
+import com.example.fable.data.remote.dto.ShelfSyncRequestDto
+import com.example.fable.data.remote.dto.ShelfSyncResponseDto
+import com.example.fable.data.remote.dto.ShelfSyncItemDto
 import com.example.fable.data.remote.dto.StoryDto
 import com.example.fable.data.remote.dto.UpdateFeedDto
 import com.example.fable.data.remote.dto.UserDto
@@ -118,6 +121,12 @@ class FableApiService(
 
     suspend fun confirmPasswordReset(request: PasswordResetConfirmRequestDto) =
         postNoContentWithBody(url("auth", "password-reset", "confirm"), request, null)
+
+    suspend fun syncShelf(request: ShelfSyncRequestDto): ShelfSyncResponseDto =
+        postJson(url("shelf", "sync"), request, accessTokenProvider())
+
+    suspend fun fetchShelf(deviceId: String): List<ShelfSyncItemDto> =
+        get(url("shelf") { addQueryParameter("deviceId", deviceId) })
 
     private fun url(vararg segments: String, query: HttpUrl.Builder.() -> Unit = {}): HttpUrl =
         (baseUrl ?: throw FableApiException(0, "Fable API URL is not configured."))
