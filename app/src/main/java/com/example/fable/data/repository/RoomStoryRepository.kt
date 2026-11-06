@@ -51,6 +51,11 @@ class RoomStoryRepository(
         dao.replaceChapters(storyId, chapters)
     }
 
+    override suspend fun refreshChapter(storyId: String, chapterNumber: Int): Result<Unit> = runCatching {
+        val chapter = api.fetchChapter(storyId, chapterNumber)
+        dao.upsertChapters(listOf(chapter.toEntity()))
+    }
+
     override suspend fun toggleBookmark(storyId: String): Result<Boolean> = runCatching {
         val story = requireNotNull(dao.getStory(storyId)) { "Story is not cached." }
         val bookmarked = !story.isBookmarked
