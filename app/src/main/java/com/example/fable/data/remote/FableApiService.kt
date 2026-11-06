@@ -37,7 +37,7 @@ class FableApiService(
     private val client: OkHttpClient = OkHttpClient(),
     private val json: Json = Json { ignoreUnknownKeys = true },
     private val accessTokenProvider: () -> String? = { null }
-) {
+) : ReadingStatsRemoteDataSource {
     private val baseUrl: HttpUrl? = baseUrl.takeIf(String::isNotBlank)?.toHttpUrlOrNull()
 
     suspend fun fetchStories(
@@ -117,14 +117,13 @@ class FableApiService(
         accessToken: String? = accessTokenProvider()
     ): List<StoryDto> = get(url("auth", "me", "stories"), accessToken)
 
-    suspend fun recordReadingSession(
+    override suspend fun recordReadingSession(
         request: ReadingSessionRequestDto,
-        accessToken: String? = accessTokenProvider()
+        accessToken: String
     ) = postNoContentWithBody(url("auth", "me", "reading-sessions"), request, accessToken)
 
-    suspend fun fetchReadingStats(
-        accessToken: String? = accessTokenProvider()
-    ): ReadingStatsDto = get(url("auth", "me", "stats"), accessToken)
+    override suspend fun fetchReadingStats(accessToken: String): ReadingStatsDto =
+        get(url("auth", "me", "stats"), accessToken)
 
     suspend fun updateProfile(request: ProfileUpdateRequestDto): UserDto =
         patchJson(url("auth", "me"), request, accessTokenProvider())
