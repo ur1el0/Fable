@@ -142,6 +142,10 @@ fun ContinuousChapterList(
     ) {
         if (orderedChapters.isEmpty()) {
             item(key = "story-content") {
+                val hasContent = story.content.isNotBlank()
+                LaunchedEffect(story.id, selectedChapterNumber, hasContent) {
+                    if (!hasContent) latestOnEnsureChapterLoaded.value(selectedChapterNumber)
+                }
                 ChapterContent(
                     story = story,
                     chapter = null,

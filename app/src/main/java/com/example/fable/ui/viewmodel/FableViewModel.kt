@@ -69,7 +69,15 @@ class FableViewModel(
 
     init {
         repository.observeCatalog()
-            .onEach { stories -> mutableUiState.update { it.copy(stories = stories) } }
+            .onEach { stories ->
+                val byId = stories.associateBy(Story::id)
+                mutableUiState.update { state ->
+                    state.copy(
+                        stories = stories,
+                        providerStories = state.providerStories.map { item -> byId[item.id] ?: item }
+                    )
+                }
+            }
             .launchIn(viewModelScope)
         repository.observeShelf()
             .onEach { stories -> mutableUiState.update { it.copy(shelfStories = stories) } }
@@ -222,7 +230,18 @@ class FableViewModel(
             )
         }
         selectedStoryJob = repository.observeStory(story.id)
-            .onEach { cached -> if (cached != null) mutableUiState.update { it.copy(selectedStory = cached) } }
+            .onEach { cached ->
+                if (cached != null) {
+                    mutableUiState.update { state ->
+                        state.copy(
+                            selectedStory = cached,
+                            providerStories = state.providerStories.map { item ->
+                                if (item.id == cached.id) cached else item
+                            }
+                        )
+                    }
+                }
+            }
             .launchIn(viewModelScope)
         chaptersJob = repository.observeChapters(story.id)
             .onEach { chapters -> mutableUiState.update { it.copy(chapters = chapters) } }
@@ -324,11 +343,15 @@ class FableViewModel(
 
     private fun loadChapter(storyId: String, chapterNumber: Int) {
         val state = mutableUiState.value
-        val chapter = state.chapters.firstOrNull { it.chapterNumber == chapterNumber } ?: return
+        val chapter = state.chapters.firstOrNull { it.chapterNumber == chapterNumber }
+        if (state.chapters.isNotEmpty() && chapter == null) return
         if (
-            chapter.content.isNotBlank() || chapter.pageUrls.isNotEmpty() ||
-            (chapterNumber == 1 && state.selectedStory?.content?.isNotBlank() == true)
+            chapter != null && (
+                chapter.content.isNotBlank() || chapter.pageUrls.isNotEmpty() ||
+                    (chapterNumber == 1 && state.selectedStory?.content?.isNotBlank() == true)
+                )
         ) return
+        if (chapter == null && chapterNumber == 1 && state.selectedStory?.content?.isNotBlank() == true) return
         val requestKey = storyId to chapterNumber
         if (!loadingChapterRequests.add(requestKey)) return
         viewModelScope.launch {
