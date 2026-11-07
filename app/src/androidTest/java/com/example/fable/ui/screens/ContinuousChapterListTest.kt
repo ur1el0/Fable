@@ -68,4 +68,37 @@ class ContinuousChapterListTest {
         composeRule.onNodeWithText("Chapter two").assertIsDisplayed()
         assertTrue(2 in requestedChapters)
     }
+
+    @Test
+    fun loadsSelectedChapterWhenMetadataOnlyStoryHasNoCachedChaptersYet() {
+        val story = Story(
+            id = "gutenberg-11",
+            title = "Alice's Adventures in Wonderland",
+            author = "Lewis Carroll",
+            genre = "Classic",
+            synopsis = "",
+            content = "",
+            totalChapters = 0
+        )
+        val requestedChapters = ConcurrentLinkedQueue<Int>()
+
+        composeRule.setContent {
+            FableTheme {
+                ContinuousChapterList(
+                    story = story,
+                    chapters = emptyList(),
+                    selectedChapterNumber = 1,
+                    chapterTotal = 1,
+                    readerPreferences = ReaderPreferences(),
+                    palette = readerPalette(ReaderPreferences().theme),
+                    onSaveProgress = { _, _ -> },
+                    onEnsureChapterLoaded = { requestedChapters.add(it) },
+                    onActiveChapterChanged = {}
+                )
+            }
+        }
+
+        composeRule.waitUntil(timeoutMillis = 3_000) { 1 in requestedChapters }
+        assertTrue(1 in requestedChapters)
+    }
 }

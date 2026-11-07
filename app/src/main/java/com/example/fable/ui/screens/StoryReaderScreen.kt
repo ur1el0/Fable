@@ -222,11 +222,13 @@ private fun ReaderChapterContent(
 
     LaunchedEffect(story.id, chapterNumber, chapters, paginated) {
         if (!paginated) return@LaunchedEffect
-        val selectedChapter = chapters.firstOrNull { it.chapterNumber == chapterNumber } ?: return@LaunchedEffect
-        if (
-            selectedChapter.content.isBlank() && selectedChapter.pageUrls.isEmpty() &&
-            !(chapterNumber == 1 && story.content.isNotBlank())
-        ) {
+        val selectedChapter = chapters.firstOrNull { it.chapterNumber == chapterNumber }
+        if (chapters.isNotEmpty() && selectedChapter == null) return@LaunchedEffect
+        val hasChapterBody = selectedChapter != null && (
+            selectedChapter.content.isNotBlank() || selectedChapter.pageUrls.isNotEmpty()
+            )
+        val hasStoryFallback = chapterNumber == 1 && story.content.isNotBlank()
+        if (!hasChapterBody && !hasStoryFallback) {
             onEnsureChapterLoaded(chapterNumber)
         }
     }

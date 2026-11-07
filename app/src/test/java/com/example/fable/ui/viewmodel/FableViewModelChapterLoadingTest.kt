@@ -97,6 +97,29 @@ class FableViewModelChapterLoadingTest {
         }
     }
 
+    @Test
+    fun loadsChapterOnDemandWhenCatalogStoryHasNoCachedChaptersYet() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val metadataOnlyStory = story(content = "").copy(totalChapters = 0)
+            val repository = FakeStoryRepository(
+                chapters = emptyList(),
+                initialStory = metadataOnlyStory
+            )
+            val viewModel = viewModel(repository)
+            advanceUntilIdle()
+            viewModel.openStory(metadataOnlyStory)
+            advanceUntilIdle()
+
+            viewModel.startReading(1)
+            advanceUntilIdle()
+
+            assertEquals(1, repository.chapterRefreshCount)
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
     private fun viewModel(repository: StoryRepository) = FableViewModel(
         repository = repository,
         readingStatsRepository = FakeReadingStatsRepository,
