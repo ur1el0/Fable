@@ -121,10 +121,13 @@ fun FableApp(modifier: Modifier = Modifier) {
                 chapters = state.chapters,
                 chapterNumber = state.selectedChapterNumber ?: state.chapters.firstOrNull()?.chapterNumber ?: 1,
                 errorMessage = state.errorMessage,
+                readerPreferences = state.readerPreferences,
                 onBack = viewModel::navigateBackFromStory,
                 onSelectChapter = viewModel::selectChapter,
                 onSaveProgress = viewModel::saveReadingProgress,
-                onReadingSessionEnded = viewModel::recordReadingSession
+                onReadingSessionEnded = viewModel::recordReadingSession,
+                onReaderPreferencesChanged = viewModel::updateReaderPreferences,
+                onResetReaderPreferences = viewModel::resetReaderPreferences
             )
             selectedStory != null -> StoryDetailScreen(
                 modifier = Modifier.padding(innerPadding),
