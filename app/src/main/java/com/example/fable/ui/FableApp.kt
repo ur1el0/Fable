@@ -49,7 +49,11 @@ private val tabs = listOf(
 fun FableApp(modifier: Modifier = Modifier) {
     val application = LocalContext.current.applicationContext as FableApplication
     val viewModel: FableViewModel = viewModel(
-        factory = FableViewModel.Factory(application.storyRepository, application.readingStatsRepository)
+        factory = FableViewModel.Factory(
+            application.storyRepository,
+            application.readingStatsRepository,
+            application.readerPreferencesRepository
+        )
     )
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val accountViewModel: AccountViewModel = viewModel(

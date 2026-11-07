@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.room.Room
 import com.example.fable.data.local.DeviceIdentityStore
 import com.example.fable.data.local.FableDatabase
+import com.example.fable.data.local.SharedPreferencesReaderPreferencesRepository
 import com.example.fable.data.local.SecureSessionStore
 import com.example.fable.data.remote.FableApiService
 import com.example.fable.data.repository.RemoteAccountRepository
@@ -11,6 +12,7 @@ import com.example.fable.data.repository.RoomReadingStatsRepository
 import com.example.fable.data.repository.RoomStoryRepository
 import com.example.fable.domain.repository.AccountRepository
 import com.example.fable.domain.repository.ReadingStatsRepository
+import com.example.fable.domain.repository.ReaderPreferencesRepository
 import com.example.fable.domain.repository.StoryRepository
 
 class FableApplication : Application() {
@@ -25,6 +27,8 @@ class FableApplication : Application() {
     lateinit var accountRepository: AccountRepository
         private set
     lateinit var readingStatsRepository: ReadingStatsRepository
+        private set
+    lateinit var readerPreferencesRepository: ReaderPreferencesRepository
         private set
 
     override fun onCreate() {
@@ -52,5 +56,6 @@ class FableApplication : Application() {
             dao = database.readingStatsDao(),
             accessTokenProvider = sessionStore::readAccessToken
         )
+        readerPreferencesRepository = SharedPreferencesReaderPreferencesRepository(applicationContext)
     }
 }

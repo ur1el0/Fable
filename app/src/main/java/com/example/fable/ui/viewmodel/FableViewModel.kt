@@ -6,12 +6,14 @@ import androidx.lifecycle.viewModelScope
 import com.example.fable.domain.model.Chapter
 import com.example.fable.domain.model.GenreCategory
 import com.example.fable.domain.model.ReadingStats
+import com.example.fable.domain.model.ReaderPreferences
 import com.example.fable.domain.model.Story
 import com.example.fable.domain.model.StoryCatalog
 import com.example.fable.domain.model.UpdateFeed
 import com.example.fable.domain.model.Writer
 import com.example.fable.domain.repository.StoryRepository
 import com.example.fable.domain.repository.ReadingStatsRepository
+import com.example.fable.domain.repository.ReaderPreferencesRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -35,6 +37,7 @@ data class FableUiState(
     val writers: List<Writer> = emptyList(),
     val updateFeed: UpdateFeed? = null,
     val readingStats: ReadingStats = ReadingStats(),
+    val readerPreferences: ReaderPreferences = ReaderPreferences(),
     val isRefreshing: Boolean = false,
     val isPublishing: Boolean = false,
     val publishErrorMessage: String? = null,
@@ -46,9 +49,12 @@ data class FableUiState(
 
 class FableViewModel(
     private val repository: StoryRepository,
-    private val readingStatsRepository: ReadingStatsRepository
+    private val readingStatsRepository: ReadingStatsRepository,
+    private val readerPreferencesRepository: ReaderPreferencesRepository
 ) : ViewModel() {
-    private val mutableUiState = MutableStateFlow(FableUiState())
+    private val mutableUiState = MutableStateFlow(
+        FableUiState(readerPreferences = readerPreferencesRepository.read())
+    )
     val uiState: StateFlow<FableUiState> = mutableUiState.asStateFlow()
     private var selectedStoryJob: Job? = null
     private var chaptersJob: Job? = null
@@ -191,6 +197,16 @@ class FableViewModel(
         viewModelScope.launch { readingStatsRepository.sync(ownerId) }
     }
 
+    fun updateReaderPreferences(preferences: ReaderPreferences) {
+        if (preferences == mutableUiState.value.readerPreferences) return
+        readerPreferencesRepository.save(preferences)
+        mutableUiState.update { it.copy(readerPreferences = preferences) }
+    }
+
+    fun resetReaderPreferences() {
+        updateReaderPreferences(ReaderPreferences())
+    }
+
     fun openStory(story: Story) {
         selectedStoryJob?.cancel()
         chaptersJob?.cancel()
@@ -313,12 +329,13 @@ class FableViewModel(
 
     class Factory(
         private val repository: StoryRepository,
-        private val readingStatsRepository: ReadingStatsRepository
+        private val readingStatsRepository: ReadingStatsRepository,
+        private val readerPreferencesRepository: ReaderPreferencesRepository
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
             require(modelClass.isAssignableFrom(FableViewModel::class.java))
-            return FableViewModel(repository, readingStatsRepository) as T
+            return FableViewModel(repository, readingStatsRepository, readerPreferencesRepository) as T
         }
     }
 
