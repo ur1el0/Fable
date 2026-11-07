@@ -1,5 +1,6 @@
 package com.example.fable.data.local
 
+import com.example.fable.data.remote.dto.StoryDto
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -40,6 +41,44 @@ class StoryShelfStateMapperTest {
         assertEquals(60, story.currentPage)
         assertEquals("chapter-60", story.lastReadChapterId)
         assertEquals(60, story.lastReadChapterNumber)
+    }
+
+    @Test
+    fun metadataOnlySummaryDtoPreservesHydratedLocalStoryFields() {
+        val hydrated = legacyStory().copy(
+            chapter = "CHAPTER I. Down the Rabbit-Hole",
+            synopsis = "Alice was beginning to get very tired of sitting by her sister on the bank.",
+            content = "Full chapter one text...",
+            readTimeMinutes = 132,
+            totalChapters = 12,
+            sourceProvider = "GUTENBERG",
+            providerId = "11",
+            providerDownloadCount = 64000
+        )
+        val summaryDto = StoryDto(
+            id = STORY_ID,
+            title = "Alice's Adventures in Wonderland",
+            author = "Lewis Carroll",
+            genre = "Fantasy",
+            chapter = "",
+            synopsis = "",
+            content = "",
+            readTimeMinutes = 0,
+            totalChapters = 0,
+            sourceProvider = "GUTENBERG",
+            providerId = "11",
+            providerDownloadCount = null
+        )
+
+        val merged = summaryDto.toEntity(previous = hydrated)
+
+        assertEquals("CHAPTER I. Down the Rabbit-Hole", merged.chapter)
+        assertEquals("Alice was beginning to get very tired of sitting by her sister on the bank.", merged.synopsis)
+        assertEquals("Full chapter one text...", merged.content)
+        assertEquals(132, merged.readTimeMinutes)
+        assertEquals(12, merged.totalChapters)
+        assertEquals("11", merged.providerId)
+        assertEquals(64000, merged.providerDownloadCount)
     }
 
     private fun legacyStory() = StoryEntity(
