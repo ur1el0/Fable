@@ -1,11 +1,10 @@
 package com.example.fable.ui.screens
 
 import android.os.SystemClock
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -14,18 +13,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.outlined.Tune
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -43,6 +34,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -56,7 +48,6 @@ import com.example.fable.domain.model.ReaderLayout
 import com.example.fable.domain.model.ReaderPreferences
 import com.example.fable.domain.model.Story
 import com.example.fable.domain.reading.ReaderPagePacker
-import com.example.fable.ui.theme.FableAccent
 import com.example.fable.ui.theme.readerPalette
 import com.example.fable.ui.theme.scaledFontSize
 import com.example.fable.ui.theme.scaledLineHeight
@@ -91,6 +82,7 @@ fun StoryReaderScreen(
     val latestOnReadingSessionEnded by rememberUpdatedState(onReadingSessionEnded)
     var sessionStartedAt by remember(story.id) { mutableLongStateOf(SystemClock.elapsedRealtime()) }
     var isSessionActive by remember(story.id) { mutableStateOf(true) }
+    var isChromeVisible by rememberSaveable(story.id) { mutableStateOf(true) }
     var isDisplayOptionsOpen by rememberSaveable { mutableStateOf(false) }
     val chapterIndex = chapters.indexOfFirst { it.chapterNumber == chapterNumber }
     val chapter = chapters.getOrNull(chapterIndex)
@@ -122,61 +114,7 @@ fun StoryReaderScreen(
         }
     }
 
-    Column(modifier.fillMaxSize().background(palette.background)) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
-                Icon(
-                    Icons.AutoMirrored.Outlined.ArrowBack,
-                    contentDescription = "Back to story",
-                    tint = palette.foreground
-                )
-            }
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    story.title,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = palette.foreground,
-                    maxLines = 1
-                )
-                Text(
-                    chapter?.title ?: "Chapter $chapterNumber",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = palette.foreground.copy(alpha = 0.84f),
-                    maxLines = 1
-                )
-            }
-            Text(
-                "${story.progressPercent}%",
-                modifier = Modifier.padding(horizontal = 4.dp),
-                style = MaterialTheme.typography.labelMedium,
-                color = palette.foreground
-            )
-            IconButton(
-                onClick = { isDisplayOptionsOpen = true },
-                modifier = Modifier.size(48.dp)
-            ) {
-                Icon(Icons.Outlined.Tune, contentDescription = "Display options", tint = palette.foreground)
-            }
-        }
-
-        LinearProgressIndicator(
-            progress = { story.progressPercent.coerceIn(0, 100) / 100f },
-            modifier = Modifier.fillMaxWidth(),
-            color = FableAccent,
-            trackColor = palette.foreground.copy(alpha = 0.12f)
-        )
-        if (errorMessage != null) {
-            Text(
-                errorMessage,
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodySmall
-            )
-        }
-
+    Box(modifier.fillMaxSize().background(palette.background)) {
         key(story.id, chapterNumber) {
             ReaderChapterContent(
                 story = story,
@@ -187,38 +125,31 @@ fun StoryReaderScreen(
                 readerPreferences = readerPreferences,
                 palette = palette,
                 onSaveProgress = onSaveProgress,
-                modifier = Modifier.weight(1f).fillMaxWidth()
+                onToggleChrome = { isChromeVisible = !isChromeVisible },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(top = if (errorMessage == null) 64.dp else 104.dp, bottom = 80.dp)
             )
         }
-
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            OutlinedButton(
-                onClick = { chapters.getOrNull(chapterIndex - 1)?.let { onSelectChapter(it.chapterNumber) } },
-                enabled = chapterIndex > 0,
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = palette.foreground),
-                border = BorderStroke(1.dp, palette.foreground.copy(alpha = 0.38f)),
-                modifier = Modifier.weight(1f)
-            ) {
-                Text("Previous")
-            }
-            Button(
-                onClick = {
-                    val next = chapters.getOrNull(chapterIndex + 1)
-                    if (next != null) onSelectChapter(next.chapterNumber)
-                    else onSaveProgress(100, chapterNumber)
-                },
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = palette.foreground,
-                    contentColor = palette.background
-                ),
-                modifier = Modifier.weight(1f)
-            ) {
-                Text(if (chapterIndex in 0 until chapters.lastIndex) "Next chapter" else "Finish")
-            }
-        }
+        ReaderControlsOverlay(
+            visible = isChromeVisible,
+            story = story,
+            chapter = chapter,
+            chapterNumber = chapterNumber,
+            errorMessage = errorMessage,
+            palette = palette,
+            canGoToPreviousChapter = chapterIndex > 0,
+            hasNextChapter = chapterIndex in 0 until chapters.lastIndex,
+            onBack = onBack,
+            onDisplayOptions = { isDisplayOptionsOpen = true },
+            onPreviousChapter = {
+                chapters.getOrNull(chapterIndex - 1)?.let { onSelectChapter(it.chapterNumber) }
+            },
+            onNextChapter = {
+                chapters.getOrNull(chapterIndex + 1)?.let { onSelectChapter(it.chapterNumber) }
+            },
+            onFinish = { onSaveProgress(100, chapterNumber) }
+        )
     }
 
     if (isDisplayOptionsOpen) {
@@ -243,6 +174,7 @@ private fun ReaderChapterContent(
     readerPreferences: ReaderPreferences,
     palette: com.example.fable.ui.theme.ReaderPalette,
     onSaveProgress: (Int, Int) -> Unit,
+    onToggleChrome: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val paginated = readerPreferences.layout == ReaderLayout.PAGINATED &&
@@ -256,6 +188,10 @@ private fun ReaderChapterContent(
         }
     }
     val fontFamily = readerPreferences.font.toFontFamily()
+    val latestOnToggleChrome by rememberUpdatedState(onToggleChrome)
+    val readerModifier = modifier.pointerInput(Unit) {
+        detectTapGestures(onTap = { latestOnToggleChrome() })
+    }
 
     if (paginated) {
         val pagerState = rememberPagerState(pageCount = { pages.size })
@@ -274,7 +210,7 @@ private fun ReaderChapterContent(
 
         HorizontalPager(
             state = pagerState,
-            modifier = modifier,
+            modifier = readerModifier,
             key = { it }
         ) { page ->
             Column(
@@ -328,7 +264,7 @@ private fun ReaderChapterContent(
         }
 
         Column(
-            modifier = modifier
+            modifier = readerModifier
                 .verticalScroll(scrollState)
                 .padding(horizontal = 24.dp, vertical = 20.dp),
             verticalArrangement = Arrangement.spacedBy(18.dp)
