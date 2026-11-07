@@ -61,6 +61,7 @@ class FableViewModel(
     private var providerSearchJob: Job? = null
     private var shelfOwnerJob: Job? = null
     private var readingStatsJob: Job? = null
+    private val loadingChapterRequests = mutableSetOf<Pair<String, Int>>()
     private var activeShelfOwnerId = GUEST_OWNER_ID
     private var readerSessionStoryId: String? = null
     private var readerSessionOwnerId = GUEST_OWNER_ID
@@ -253,6 +254,11 @@ class FableViewModel(
         loadChapter(story.id, chapterNumber)
     }
 
+    fun ensureChapterLoaded(chapterNumber: Int) {
+        val story = mutableUiState.value.selectedStory ?: return
+        loadChapter(story.id, chapterNumber)
+    }
+
     fun closeStory() {
         selectedStoryJob?.cancel()
         chaptersJob?.cancel()
@@ -317,9 +323,22 @@ class FableViewModel(
     }
 
     private fun loadChapter(storyId: String, chapterNumber: Int) {
-        if (mutableUiState.value.chapters.none { it.chapterNumber == chapterNumber }) return
+        val state = mutableUiState.value
+        val chapter = state.chapters.firstOrNull { it.chapterNumber == chapterNumber } ?: return
+        if (
+            chapter.content.isNotBlank() || chapter.pageUrls.isNotEmpty() ||
+            (chapterNumber == 1 && state.selectedStory?.content?.isNotBlank() == true)
+        ) return
+        val requestKey = storyId to chapterNumber
+        if (!loadingChapterRequests.add(requestKey)) return
         viewModelScope.launch {
-            repository.refreshChapter(storyId, chapterNumber).onFailure(::setError)
+            try {
+                repository.refreshChapter(storyId, chapterNumber).onFailure { error ->
+                    if (mutableUiState.value.selectedStory?.id == storyId) setError(error)
+                }
+            } finally {
+                loadingChapterRequests.remove(requestKey)
+            }
         }
     }
 
