@@ -23,7 +23,10 @@ android {
 
     buildTypes {
         debug {
-            buildConfigField("String", "FABLE_API_BASE_URL", "\"http://10.0.2.2:8000/api/v1/\"")
+            val apiBaseUrl = providers.gradleProperty("fableApiBaseUrl")
+                .orElse("http://10.0.2.2:8001/api/v1/")
+                .get()
+            buildConfigField("String", "FABLE_API_BASE_URL", "\"$apiBaseUrl\"")
         }
         release {
             val apiBaseUrl = providers.gradleProperty("fableApiBaseUrl").orElse("").get()
