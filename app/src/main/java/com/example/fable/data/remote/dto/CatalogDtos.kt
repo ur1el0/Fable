@@ -1,6 +1,14 @@
 package com.example.fable.data.remote.dto
 
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+
+@Serializable
+data class HealthDto(
+    val status: String = "",
+    val database: String = "",
+    @SerialName("timestamp_utc") val timestampUtc: String = ""
+)
 
 @Serializable
 data class ChapterDto(
