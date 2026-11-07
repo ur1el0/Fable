@@ -26,6 +26,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -61,6 +62,7 @@ import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 @OptIn(FlowPreview::class)
@@ -198,6 +200,7 @@ private fun ReaderChapterContent(
         )
     }
     val latestOnToggleChrome by rememberUpdatedState(onToggleChrome)
+    val pagerScope = rememberCoroutineScope()
     val readerModifier = modifier.pointerInput(Unit) {
         detectTapGestures(onTap = { latestOnToggleChrome() })
     }
@@ -207,6 +210,20 @@ private fun ReaderChapterContent(
             initialPage = ReaderProgressMapper.pageIndexForProgress(restoredChapterProgress, pages.size),
             pageCount = { pages.size }
         )
+        val pagerTapModifier = modifier.pointerInput(pagerState, pages.size) {
+            detectTapGestures { offset ->
+                val targetPage = when {
+                    offset.x < size.width * TAP_ZONE_WIDTH_FRACTION -> pagerState.currentPage - 1
+                    offset.x > size.width * (1f - TAP_ZONE_WIDTH_FRACTION) -> pagerState.currentPage + 1
+                    else -> null
+                }
+                if (targetPage == null) {
+                    latestOnToggleChrome()
+                } else if (targetPage in pages.indices) {
+                    pagerScope.launch { pagerState.animateScrollToPage(targetPage) }
+                }
+            }
+        }
         LaunchedEffect(pagerState, chapterNumber, chapterTotal, pages.size) {
             snapshotFlow { pagerState.currentPage }
                 .distinctUntilChanged()
@@ -222,7 +239,7 @@ private fun ReaderChapterContent(
 
         HorizontalPager(
             state = pagerState,
-            modifier = readerModifier,
+            modifier = pagerTapModifier,
             key = { it }
         ) { page ->
             Column(
@@ -330,3 +347,5 @@ private fun ReaderChapterContent(
         }
     }
 }
+
+private const val TAP_ZONE_WIDTH_FRACTION = 0.25f
