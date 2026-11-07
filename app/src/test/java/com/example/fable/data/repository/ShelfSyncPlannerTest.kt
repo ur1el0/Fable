@@ -57,6 +57,20 @@ class ShelfSyncPlannerTest {
         assertFalse(state.isBookmarked)
     }
 
+    @Test
+    fun handlesMixedTimezoneFormatsGracefully() {
+        val plan = planShelfSync(
+            ownerId = OWNER,
+            localStates = listOf(local("story-tz", "2026-11-06T12:00:00+00:00")),
+            remoteItems = listOf(remote("story-tz", "2026-11-06T12:00:00Z"))
+        )
+
+        // Equal timestamps: server wins, no upload
+        assertTrue(plan.upload.isEmpty())
+        assertEquals(1, plan.serverWins.size)
+        assertEquals("story-tz", plan.serverWins.single().storyId)
+    }
+
     private fun local(
         storyId: String,
         timestamp: String,

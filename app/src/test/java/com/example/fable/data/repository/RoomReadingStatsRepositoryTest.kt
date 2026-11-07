@@ -77,6 +77,55 @@ class RoomReadingStatsRepositoryTest {
         assertEquals(86_400, dao.pending(OWNER_A).single().secondsRead)
     }
 
+    @Test
+    fun dropsUnrecoverableClientValidationErrorAndContinuesSyncing() = runTest {
+        val dao = FakeReadingStatsDao()
+        val remote = FakeReadingStatsRemote()
+        remote.onRecord = { request ->
+            if (request.storyId == "invalid-uuid") {
+                throw com.example.fable.data.remote.FableApiException(422, "Input should be a valid UUID")
+            }
+        }
+        val repository = repository(dao, remote)
+
+        dao.insertSession(
+            ReadingSessionEntity(
+                ownerId = OWNER_A,
+                id = "bad-session",
+                storyId = "invalid-uuid",
+                secondsRead = 60,
+                readAtUtc = "2026-11-06T12:00:00Z",
+                isCompleted = false
+            )
+        )
+        dao.insertSession(
+            ReadingSessionEntity(
+                ownerId = OWNER_A,
+                id = "good-session",
+                storyId = STORY_ID,
+                secondsRead = 60,
+                readAtUtc = "2026-11-06T12:01:00Z",
+                isCompleted = false
+            )
+        )
+
+        repository.sync(OWNER_A).getOrThrow()
+
+        // The bad session should have been dropped, and the good session synced
+        assertEquals(0, dao.pending(OWNER_A).size)
+        assertEquals(1, remote.statsFetchCount)
+    }
+
+    @Test
+    fun normalizesGutenbergStoryIdToBackendUuid() = runTest {
+        val dao = FakeReadingStatsDao()
+        val repository = repository(dao, FakeReadingStatsRemote())
+
+        repository.recordSession(OWNER_A, "gutenberg-11", secondsRead = 30, isCompleted = false).getOrThrow()
+
+        assertEquals("00000000-0000-0000-0000-00000000000b", dao.pending(OWNER_A).single().storyId)
+    }
+
     private fun repository(dao: FakeReadingStatsDao, remote: FakeReadingStatsRemote) =
         RoomReadingStatsRepository(remote, dao) { TOKEN_A }
 
@@ -84,9 +133,11 @@ class RoomReadingStatsRepositoryTest {
         val recordedSessions = mutableListOf<RecordedSession>()
         var failAfterRecording = false
         var afterRecord: (() -> Unit)? = null
+        var onRecord: ((ReadingSessionRequestDto) -> Unit)? = null
         var statsFetchCount = 0
 
         override suspend fun recordReadingSession(request: ReadingSessionRequestDto, accessToken: String) {
+            onRecord?.invoke(request)
             recordedSessions += RecordedSession(request, accessToken)
             afterRecord?.invoke()
             if (failAfterRecording) error("Simulated connection drop after request delivery")
