@@ -1,22 +1,20 @@
 # Fable
 
-An offline-first Android reader built with Kotlin and Jetpack Compose.
+An offline-first Android literature and manga reader built with Kotlin and Jetpack Compose.
 
-Fable is the first iteration of a personal reading application designed to replace my existing Android reader. The initial focus is a fast, reliable, and local-first experience, with a modular architecture that can support future expansion if the project grows beyond personal use.
+Fable brings the iOS reader experience to Android, including curated story discovery, a personal shelf, prose and manga reading, and community publishing. The Android client keeps its local library and reading state available offline while integrating with the shared FastAPI backend.
 
 ## Status
 
-> 🚧 Planning
-
-Development has not started yet. Current focus is on completing other active projects before work begins on Fable.
+> 🚧 In development
 
 ## Planned Tech Stack
 
 * **Language:** Kotlin
 * **UI:** Jetpack Compose
 * **Database:** Room (SQLite)
-* **Networking:** OkHttp
-* **HTML Parsing:** Jsoup
+* **Networking:** OkHttp and kotlinx.serialization
+* **Backend:** Shared FastAPI service from Fable-IOS
 * **Image Loading:** Coil
 * **Background Tasks:** WorkManager
 
@@ -24,16 +22,14 @@ Development has not started yet. Current focus is on completing other active pro
 
 * Offline-first experience
 * Local library management
-* Modular source architecture
-* Download manager
-* Reading history
-* Categories and favorites
-* Multiple reading modes
+* Curated stories, Project Gutenberg, and manga discovery
+* Local shelf, bookmarks, progress, and offline chapter cache
+* Community accounts and story publishing
+* Prose and manga reading modes
 
 ## Roadmap
 
-* **Fable (v1):** Personal, local-first Android reader.
-* **Future:** Optional cloud synchronization, multi-device support, backend services, and a plugin ecosystem if the project evolves beyond personal use.
+* **Fable Android:** Native companion to Fable-IOS, with Room-backed offline state and the shared catalog, account, and shelf APIs.
 
 ## License
 

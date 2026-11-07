@@ -1,5 +1,11 @@
 # 03 Domain & Data Layer Architecture
 
+## Current Implementation
+
+The Android client now shares Fable-IOS domain concepts: `Story`, `Chapter`, `GenreCategory`, and `Writer`. `StoryRepository` is the domain contract; `RoomStoryRepository` combines the Fable API client with Room and preserves local shelf state when catalog metadata is refreshed.
+
+`FableApplication` is the composition root for the Room database and repository. Remote DTOs stay in the data layer and map into plain Kotlin domain models. The earlier Book/source-extractor examples below are the initial plan and remain future extension points.
+
 ## 1. Clean Architecture Separation
 
 Fable enforces a strict boundary between business logic (Domain) and infrastructure/persistence logic (Data).

@@ -1,5 +1,15 @@
 # 05 Networking & Source Extractor Pipeline
 
+## Current Product API
+
+The Android client mirrors the contracts served by the Fable-IOS FastAPI backend. Catalog and provider responses are treated as remote content; the Android Room database remains authoritative for the user's saved stories, reading progress, and cached chapters.
+
+The first API group covers `GET /api/v1/stories`, `GET /api/v1/stories/{storyId}`, chapter lists and individual chapters, `GET /api/v1/genres`, `GET /api/v1/authors/top`, and `GET /api/v1/updates`. Provider catalogs, account actions, story publishing, and shelf synchronization are added as separate implementation milestones.
+
+The app's shared domain model is `Story`, with `ContentFormat` distinguishing prose from manga and `SourceProvider` identifying the catalog provider. Android DTOs mirror the backend's camel-case JSON aliases and ignore additional response properties so compatible backend additions do not break the client.
+
+The older extractor contract below remains a possible future extension for direct website sources. It is not the current path for Fable's curated catalog, Gutenberg, or MangaDex content; those sources are reached through the shared backend.
+
 ## 1. Modular Source Extractor Architecture
 
 Fable decouples external web content ingestion from the core application using a modular extractor interface. Every website scraper implements the unified `Source` contract:
