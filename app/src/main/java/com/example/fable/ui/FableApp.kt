@@ -127,7 +127,8 @@ fun FableApp(modifier: Modifier = Modifier) {
                 onSaveProgress = viewModel::saveReadingProgress,
                 onReadingSessionEnded = viewModel::recordReadingSession,
                 onReaderPreferencesChanged = viewModel::updateReaderPreferences,
-                onResetReaderPreferences = viewModel::resetReaderPreferences
+                onResetReaderPreferences = viewModel::resetReaderPreferences,
+                onEnsureChapterLoaded = viewModel::ensureChapterLoaded
             )
             selectedStory != null -> StoryDetailScreen(
                 modifier = Modifier.padding(innerPadding),
