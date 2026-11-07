@@ -48,6 +48,7 @@ import com.example.fable.domain.model.ReaderLayout
 import com.example.fable.domain.model.ReaderPreferences
 import com.example.fable.domain.model.Story
 import com.example.fable.domain.reading.ReaderPagePacker
+import com.example.fable.domain.reading.ReaderProgressMapper
 import com.example.fable.ui.theme.readerPalette
 import com.example.fable.ui.theme.scaledFontSize
 import com.example.fable.ui.theme.scaledLineHeight
@@ -57,6 +58,7 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
 import kotlin.math.roundToInt
@@ -188,13 +190,23 @@ private fun ReaderChapterContent(
         }
     }
     val fontFamily = readerPreferences.font.toFontFamily()
+    val restoredChapterProgress = remember(story.id, chapterNumber, chapterTotal) {
+        ReaderProgressMapper.chapterProgressPercent(
+            overallProgressPercent = story.progressPercent,
+            chapterNumber = chapterNumber,
+            totalChapters = chapterTotal
+        )
+    }
     val latestOnToggleChrome by rememberUpdatedState(onToggleChrome)
     val readerModifier = modifier.pointerInput(Unit) {
         detectTapGestures(onTap = { latestOnToggleChrome() })
     }
 
     if (paginated) {
-        val pagerState = rememberPagerState(pageCount = { pages.size })
+        val pagerState = rememberPagerState(
+            initialPage = ReaderProgressMapper.pageIndexForProgress(restoredChapterProgress, pages.size),
+            pageCount = { pages.size }
+        )
         LaunchedEffect(pagerState, chapterNumber, chapterTotal, pages.size) {
             snapshotFlow { pagerState.currentPage }
                 .distinctUntilChanged()
@@ -248,6 +260,19 @@ private fun ReaderChapterContent(
         }
     } else {
         val scrollState = rememberScrollState()
+        var didRestoreScroll by remember(story.id, chapterNumber) { mutableStateOf(false) }
+        LaunchedEffect(scrollState, story.id, chapterNumber, chapterTotal) {
+            if (didRestoreScroll) return@LaunchedEffect
+            if (restoredChapterProgress == 0) {
+                didRestoreScroll = true
+                return@LaunchedEffect
+            }
+            val maxScroll = snapshotFlow { scrollState.maxValue }.first { it > 0 }
+            scrollState.scrollTo(
+                ReaderProgressMapper.scrollOffsetForProgress(restoredChapterProgress, maxScroll)
+            )
+            didRestoreScroll = true
+        }
         LaunchedEffect(scrollState, chapterNumber, chapterTotal) {
             snapshotFlow {
                 if (scrollState.maxValue == 0) 0
@@ -257,8 +282,7 @@ private fun ReaderChapterContent(
                 .filter { it in 5..100 }
                 .debounce(900)
                 .map { localProgress ->
-                    val overall = ((chapterNumber - 1).coerceAtLeast(0) + localProgress / 100f) / chapterTotal * 100
-                    overall.roundToInt().coerceIn(1, 100)
+                    ReaderProgressMapper.overallProgressPercent(localProgress, chapterNumber, chapterTotal)
                 }
                 .collect { progress -> onSaveProgress(progress, chapterNumber) }
         }
