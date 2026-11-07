@@ -5,6 +5,7 @@ import com.example.fable.data.remote.dto.AuthResponseDto
 import com.example.fable.data.remote.dto.ChapterDto
 import com.example.fable.data.remote.dto.CreateStoryRequestDto
 import com.example.fable.data.remote.dto.GenreDto
+import com.example.fable.data.remote.dto.HealthDto
 import com.example.fable.data.remote.dto.LoginRequestDto
 import com.example.fable.data.remote.dto.PasswordResetAcceptedDto
 import com.example.fable.data.remote.dto.PasswordResetConfirmRequestDto
@@ -39,6 +40,8 @@ class FableApiService(
     private val accessTokenProvider: () -> String? = { null }
 ) : ReadingStatsRemoteDataSource {
     private val baseUrl: HttpUrl? = baseUrl.takeIf(String::isNotBlank)?.toHttpUrlOrNull()
+
+    suspend fun fetchHealth(): HealthDto = get(url("health"), accessToken = null)
 
     suspend fun fetchStories(
         genre: String? = null,
