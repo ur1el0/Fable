@@ -175,6 +175,20 @@ class FableApiServiceTest {
     }
 
     @Test
+    fun fetchStoriesOmitsUnsetAndBlankOptionalQueryParameters() = runTest {
+        val recorder = JsonResponseInterceptor(body = "[]")
+        val service = service(recorder)
+
+        service.fetchStories()
+        service.fetchStories(genre = "", search = "", since = "")
+
+        assertEquals(2, recorder.requests.size)
+        recorder.requests.forEach { request ->
+            assertEquals(setOf("limit", "offset"), request.url.queryParameterNames)
+        }
+    }
+
+    @Test
     fun fetchShelfSendsDeviceIdAndBearerToken() = runTest {
         val recorder = JsonResponseInterceptor(body = "[]")
         val service = service(recorder)

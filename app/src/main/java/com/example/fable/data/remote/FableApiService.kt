@@ -51,9 +51,9 @@ class FableApiService(
         offset: Int = 0
     ): List<StoryDto> = get(
         url("stories") {
-            addQueryParameter("genre", genre)
-            addQueryParameter("search", search)
-            addQueryParameter("since", since)
+            genre?.takeIf(String::isNotBlank)?.let { addQueryParameter("genre", it) }
+            search?.takeIf(String::isNotBlank)?.let { addQueryParameter("search", it) }
+            since?.takeIf(String::isNotBlank)?.let { addQueryParameter("since", it) }
             addQueryParameter("limit", limit.toString())
             addQueryParameter("offset", offset.toString())
         }
