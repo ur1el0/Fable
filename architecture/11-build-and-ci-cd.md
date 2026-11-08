@@ -17,6 +17,8 @@ Fable uses **Gradle Kotlin DSL** (`build.gradle.kts`) paired with Gradle Version
 
 Release builds enable R8 code and resource shrinking to reduce APK footprint and strip sensitive debugging statements:
 
+The project currently uses AGP 9.2.1, so it uses the legacy build-type flags. The simplified `optimization { enable = true }` DSL is available starting in AGP 9.3.
+
 ```kotlin
 android {
     buildTypes {
@@ -25,26 +27,23 @@ android {
             isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
+                "src/main/keepRules/rules.keep"
             )
         }
     }
 }
 ```
 
-### ProGuard Rules (`proguard-rules.pro`)
+### Project R8 Rules (`app/src/main/keepRules/rules.keep`)
 ```proguard
-# Strip all Android Log statements in release builds
+# Strip Android debug and verbose log statements in release builds
 -assumenosideeffects class android.util.Log {
     public static *** d(...);
     public static *** v(...);
-    public static *** i(...);
 }
-
-# Preserve Room generated classes
--keep class * extends androidx.room.RoomDatabase
--dontwarn androidx.room.paging.**
 ```
+
+Room dependencies provide their generated database keep rules through their consumer rules; avoid duplicating broad application-level keep rules.
 
 ---
 
