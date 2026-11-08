@@ -1,55 +1,33 @@
-# Fable - Master Engineering Backlog
+# Fable Android Open Backlog
 
-## Priority 1: Foundation & Data Layer
-- [ ] Setup Room SQLite dependencies and KSP compiler in `gradle/libs.versions.toml` and `app/build.gradle.kts`.
-- [ ] Define Room Entities: `BookEntity`, `ChapterEntity`, `CategoryEntity`, `HistoryEntity`, `DownloadEntity`.
-- [ ] Define DAOs: `BookDao`, `ChapterDao`, `CategoryDao`, `HistoryDao`, `DownloadDao`.
-- [ ] Create `FableDatabase` with TypeConverters (`ReadingModeConverter`, `DateConverter`).
-- [ ] Implement Clean Architecture domain models (`Book`, `Chapter`, `ReadingProgress`) and repository interfaces.
-- [ ] Build in-memory Room database unit tests verifying CRUD and reactive Flow emissions.
+This is the open-work list for the implementation described by ADR 009. Do not copy unchecked items from the original scraper/download-manager roadmap into active work.
 
----
+## Priority 0: Runtime Integration
 
-## Priority 2: Offline Reader Engine (UI Layer)
-- [ ] Scaffold `ReaderScreen` with edge-to-edge Compose layout.
-- [ ] Implement **Paging Mode** via `HorizontalPager` with touch tap-to-turn zones.
-- [ ] Implement **Continuous Scroll Mode** via `LazyColumn` with seamless chapter boundary transitions.
-- [ ] Build `ReaderControlsOverlay` (top navigation bar, bottom scrubber, battery/time status).
-- [ ] Build `ReaderSettingsBottomSheet` (font scale, line height, paragraph margin, themes).
-- [ ] Implement four reading color schemes: Light, Dark, AMOLED Black, Sepia.
-- [ ] Integrate automatic reading progress saving to Room on scroll/page turn events.
+- [ ] Connect an Android emulator or physical device and configure a backend URL reachable from that device.
+- [ ] Exercise backend health, catalog search, story details, and an on-demand chapter fetch from the Android app.
+- [ ] Sign in, change shelf state, verify account-scoped synchronization, then sign out and confirm the guest shelf remains isolated.
+- [ ] Publish a test story through the UI and verify the resulting account-owned story.
+- [ ] Open a cached story and chapter with networking disabled; verify reading position and local state remain usable.
+- [ ] Run the instrumentation suite on a device or emulator and record runtime failures separately from compile failures.
 
----
+## Priority 1: Confirmed Reliability Gaps
 
-## Priority 3: Modular Source Extractors & Scraping
-- [ ] Define `Source` contract interface (`searchBooks`, `getPopularBooks`, `getChapterList`, `getChapterContent`).
-- [ ] Configure OkHttp client with rate-limiting, custom User-Agent, and connection pooling.
-- [ ] Implement Jsoup HTML parsing engine with strict `Safelist` sanitization (stripping scripts and ads).
-- [ ] Implement reference web novel extractor.
-- [ ] Add static HTML unit test fixtures to verify DOM selectors against live website changes.
+- [ ] Reproduce provider catalog cold-cache failures and confirm the Android UI preserves cached results and presents a recoverable error.
+- [ ] Verify partial catalog or chapter refreshes never replace richer cached metadata or content with empty fields.
+- [ ] Exercise process recreation during reading and pending reading-session synchronization.
+- [ ] Review account changes and shelf synchronization for stale-owner state on device.
 
----
+## Priority 2: Release Readiness
 
-## Priority 4: Background Download Pipeline
-- [ ] Implement `DownloadWorker` extending AndroidX `CoroutineWorker`.
-- [ ] Setup foreground service notification displaying live download progress and cancel action.
-- [ ] Implement Scoped Storage chapter file writer (`context.filesDir/chapters/`).
-- [ ] Connect download actions to Room `DownloadDao` state transitions (`QUEUED`, `DOWNLOADING`, `COMPLETED`, `FAILED`).
-- [ ] Support batch download commands ("Download Next 5/10/All Chapters").
+- [ ] Verify production API configuration uses a reachable HTTPS endpoint and debug-only local URLs do not leak into release builds.
+- [ ] Review accessibility semantics, touch targets, font scaling, and narrow-screen layouts on device.
+- [ ] Measure reader scrolling and chapter-open behavior on representative hardware before setting performance targets.
+- [ ] Validate Room migrations from each supported prior schema and document the upgrade path.
 
----
+## Deferred by Product Scope
 
-## Priority 5: Library & Category Management
-- [ ] Build `LibraryScreen` with 2:3 book card grid layout.
-- [ ] Implement category tab filtering and category creation dialog.
-- [ ] Build `HistoryScreen` showing chronological reading history with quick "Resume" button.
-- [ ] Implement local full-text search across titles, authors, and genres in the library.
-
----
-
-## Priority 6: Theming, Polish & Performance
-- [ ] Add Material You dynamic color support for Android 12+.
-- [ ] Profile Compose recompositions and apply stability optimizations (`@Immutable`, `derivedStateOf`).
-- [ ] Configure Coil image caching limits (20% max heap) to prevent OOM errors.
-- [ ] Configure ProGuard/R8 rules to strip debug logs and shrink release APK.
+- Direct Android scraping, extractor plugins, and provider-specific clients.
+- WorkManager batch downloads and a separate chapter-file storage subsystem.
+- New account, backup, or provider behavior that is not part of the shared API contract.
 

@@ -1,53 +1,48 @@
 # 01 System Overview
 
-## 1. Project Context & Objectives
+## Product Context
 
-**Fable** is a native, offline-first Android reader built with Kotlin and Jetpack Compose. It is designed to replace fragmented, web-based, or ad-heavy reading applications with a fast, private, and distraction-free local reading environment for serialized novels and community fiction.
+Fable Android is the native client for the shared Fable product. Its user-facing workflows include story discovery, a local library and shelf, prose and manga reading, accounts, and community publishing. The shared Fable FastAPI service owns provider integrations, shared catalog behavior, account operations, publishing, and cross-device synchronization.
 
-The core objectives of the system are:
-- **Local-First Architecture:** The user's device is the ultimate authority. All library catalogs, reading histories, custom categories, and downloaded chapters are stored locally in a Room SQLite database.
-- **Modular Source Architecture:** Decouple novel discovery and web scraping behind a unified `Source` extractor contract, allowing new web sources to be integrated without altering the core reader or database logic.
-- **Ergonomic Reading Experience:** Provide an adaptive reader engine supporting both horizontal paging and seamless vertical continuous scrolling, customizable typography (font families, scale, line spacing, margins), and high-contrast color palettes (Light, Dark, AMOLED Pure Black, Sepia).
-- **Reliable Background Downloads:** Leverage AndroidX WorkManager to reliably download, sanitize, and cache chapters in the background while adhering to device battery, network, and memory constraints.
-- **Zero-Telemetry Privacy:** Zero third-party analytics SDKs, trackers, or advertising libraries. All user data belongs exclusively to the user.
+ADR 009 is the authoritative product and API decision. This document describes the current implementation; source code and API contract tests remain authoritative when implementation details change.
 
----
+## Architecture
 
-## 2. High-Level Architectural Scope
+### Presentation
 
-Fable enforces a strict Clean Architecture boundary divided into three primary layers:
+Jetpack Compose screens are composed by FableApp. ViewModels expose immutable StateFlow UI state and call domain repository interfaces. The current app uses explicit dependency construction in FableApplication rather than a generated dependency-injection framework.
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                    Presentation Layer                   │
-│         (Jetpack Compose, Material 3, ViewModels)       │
-└────────────────────────────┬────────────────────────────┘
-                             │ Observes StateFlow / Dispatches Events
-                             ▼
-┌─────────────────────────────────────────────────────────┐
-│                       Domain Layer                      │
-│        (Use Cases, Business Models, Repository Interfaces)│
-└────────────────────────────▲────────────────────────────┘
-                             │ Implemented by
-┌────────────────────────────┴────────────────────────────┐
-│                        Data Layer                       │
-│    (Room SQLite DB, Scoped Storage, OkHttp/Jsoup Source)│
-└─────────────────────────────────────────────────────────┘
-```
+### Domain
 
-- **Presentation Layer (`com.example.fable.ui`):** Built entirely in Jetpack Compose. ViewModels expose immutable `StateFlow<UiState>` instances and process user interactions via Unidirectional Data Flow (UDF).
-- **Domain Layer (`com.example.fable.domain`):** Pure Kotlin business logic. Contains entities (`Book`, `Chapter`, `ReadingProgress`), Use Cases (`GetBookWithChaptersUseCase`, `DownloadChapterUseCase`), and repository contracts. Has zero dependencies on the Android framework.
-- **Data Layer (`com.example.fable.data`):** Implements domain repository interfaces. Encapsulates Room database entities/DAOs, internal file storage writers, OkHttp network clients, and Jsoup HTML parsers.
-- **Background Pipeline (`com.example.fable.worker`):** Contains WorkManager `CoroutineWorker` implementations executing long-running downloads and chapter sync tasks.
+The domain includes Story, Chapter, provider/content-format identifiers, reader preferences, user profiles, and reading statistics. Repository interfaces define story, account, preference, and statistics operations.
 
----
+### Data
 
-## 3. Offline Philosophy & Non-Functional Baselines
+- Room persists stories, chapters, account-scoped shelf state, pending reading sessions, and cached reading statistics.
+- SharedPreferences stores reader preferences.
+- The session and device identity stores provide API-client credentials and device identity.
+- FableApiService implements the shared backend contract.
+- Repositories coordinate API calls with Room so fetched content is cached and local reading state survives remote failures.
 
-1. **Local Single Source of Truth:** Remote web sources are treated strictly as secondary content suppliers. When chapters or book details are fetched, they are immediately persisted to Room; the UI strictly observes reactive database queries via Kotlin `Flow`.
-2. **Deterministic Offline Availability:** If an internet connection is severed or a remote website goes offline, every book and chapter previously saved or downloaded in Fable remains fully readable without warnings, popups, or application crashes.
-3. **Performance Budget:** 
-   - Strict 60fps rendering during continuous scrolling and page flipping (<16ms frame budget).
-   - Cold startup time under 800ms.
-   - Chapter opening latency under 150ms from local storage.
+### Backend Boundary
+
+Android calls the shared Fable API for curated and provider catalogs, story and chapter retrieval, accounts, publishing, shelf synchronization, and reading statistics. Provider-specific scraping and business rules do not belong in the Android client.
+
+## Data and Offline Contract
+
+Room is authoritative for content already cached on the device and locally recorded reading state. Catalog refreshes and chapter fetches update Room, which the UI observes. Chapters are fetched on demand; catalog search does not download every chapter body.
+
+Offline availability is limited to data already stored locally. Uncached discovery, chapters, account actions, publishing, and cross-device synchronization require a connection. Network or provider failures must not erase richer cached content or pending local reading sessions.
+
+## Runtime Configuration
+
+The API base URL is supplied through the Gradle property fableApiBaseUrl. The emulator development default uses the emulator host bridge and is not reachable from a physical phone. Device testing must configure a LAN or deployed URL reachable from the device. Production configuration must use HTTPS.
+
+## Verification Baseline
+
+JVM tests cover API contracts, mappings, repository synchronization, reader progress, and account state. Instrumentation tests cover Compose interactions and Android persistence behavior. A successful compile of instrumentation tests is not equivalent to running them on a device.
+
+## Deferred Designs
+
+The original direct-source extractor pipeline, WorkManager download queue, and separate chapter-file storage design are not current architecture. Do not implement them without a new product decision and an updated ADR. Older architecture proposals that conflict with ADR 009 or current source are historical references, not implementation instructions.
 

@@ -1,55 +1,77 @@
-# Fable - Product Requirements Document (PRD)
+# Fable Android Product Requirements
 
-## 1. Project Overview
-**Fable** is a fast, reliable, offline-first Android reader built natively with Kotlin and Jetpack Compose. It is designed to replace existing fragmented web readers with a unified, distraction-free, local-first reading application that respects user privacy and system resources.
+## Product Intent
 
----
+Fable Android is the native Kotlin and Jetpack Compose client for the shared Fable product. It supports story discovery, reading, a personal shelf, accounts, and community publishing while retaining locally cached stories, chapters, and reading state on the device.
 
-## 2. Target Audience
-- **Serial Fiction & Novel Readers**: Users reading long-running serialized web novels, light novels, and community fiction.
-- **Offline & Commuter Readers**: Users who require guaranteed offline access to hundreds of chapters without internet dependency during transit or travel.
-- **Power Readers**: Users demanding granular typography ergonomics (custom line heights, fonts, margins, AMOLED black mode) to prevent eye strain.
+Android and iOS use the shared Fable FastAPI service for catalogs, provider integrations, accounts, publishing, and cross-device shelf and reading-stat synchronization. Android must not duplicate provider scraping or backend business logic.
 
----
+## Audience
 
-## 3. Core Features & Modules
+- Readers who want to discover and read curated prose and manga.
+- Readers who need previously cached stories and chapters to remain available offline.
+- Writers who create an account and publish stories through Fable.
 
-### 3.1 Local Library & Category Management
-- Organize saved books into custom categories (e.g., "Reading", "Plan to Read", "Completed", "Favorites").
-- Dynamic sorting by Last Read, Alphabetical, Date Added, and Total Chapters.
-- Fast local full-text search across titles and authors in the library.
+## Product Requirements
 
-### 3.2 Immersive Reader Engine
-- Dual Reading Modes:
-  - **Paging Mode**: Horizontal page flipping with custom page boundaries.
-  - **Continuous Scroll Mode**: Smooth vertical scrolling across chapter boundaries.
-- Reader customization: Font scale (12sp-32sp), line spacing, paragraph margins, font family selection (Sans, Serif, Mono).
-- Color themes: Light, Dark, AMOLED Pure Black, Sepia Paper.
-- Center-tap reader controls overlay showing progress, chapter titles, battery, and clock.
+### Discovery and story details
 
-### 3.3 Modular Source Architecture
-- Decoupled `Source` interface supporting custom extractors for different web sources.
-- Safe web scraping via OkHttp and Jsoup with robust error handling for HTTP timeouts and anti-bot responses.
-- Automatic content cleaning: Stripping unwanted advertisements, site navigation banners, and malicious scripts from chapter text.
+- Present the Fable catalog and provider-backed discovery through the shared API.
+- Support the provider and content-format identifiers defined by the backend contract.
+- Keep catalog metadata in Room so previously fetched stories remain available when refreshes fail.
+- Fetch chapter content on demand. Catalog searches must not download full chapter bodies.
+- Preserve already cached chapter content when a partial response or provider failure contains less data.
 
-### 3.4 Background Download Manager
-- Queue individual chapters or batches (e.g., "Next 10 Chapters", "All Unread Chapters") for background download.
-- Managed by AndroidX WorkManager to guarantee task completion even if the app process is terminated.
-- Foreground Service notification with live progress tracking, pause, and cancellation.
-- Chapters stored safely in app-internal Scoped Storage (`context.filesDir/chapters/`).
+### Reader
 
-### 3.5 Reading History & Progress Tracking
-- Exact progress checkpointing (chapter ID, scroll position, page index) updated seamlessly in real time.
-- Reading History screen listing recently read titles with one-tap "Resume Reading" action.
-- Mark chapters as read/unread manually or automatically upon reaching the end of a chapter.
+- Support the implemented scroll and paginated layouts, reader themes, font choices, font scaling, and line-spacing settings.
+- Persist reader preferences locally.
+- Restore reading position and load missing chapters on demand.
+- Persist fetched chapters and reading progress locally so cached content can be reopened offline.
+- Support chapter navigation for prose and provider-supplied image pages where available.
 
----
+### Library and shelf
 
-## 4. Non-Functional Requirements
+- Show locally cached stories and their reading state.
+- Support bookmark, completion, progress, and last-read chapter state.
+- Keep shelf state scoped by account, with a guest scope when signed out.
+- Reconcile local shelf changes with the shared backend when signed in without discarding local data on a failed request.
 
-- **Offline Resilience**: Once chapters are downloaded, the reader must be 100% functional with airplane mode enabled.
-- **Performance**: Constant 60fps rendering during scrolling and page flips; chapter load time under 150ms.
-- **Memory Footprint**: App baseline memory usage below 90MB; strictly bounded image memory caching via Coil to prevent OOM errors.
-- **Battery Efficiency**: Zero background CPU wake locks when no active downloads are queued.
-- **Data Privacy & Sovereignty**: Zero third-party telemetry, tracking SDKs, or external user logins in v1. All user data remains locally on the user's device.
+### Accounts and publishing
+
+- Support registration, sign-in, profile updates, password reset, and sign-out through the shared API.
+- Require an authenticated account to publish stories.
+- Show account-published stories and surface API failures as recoverable UI state.
+- Keep credentials and account state behind the data layer; presentation code must not call network endpoints directly.
+
+### Reading statistics
+
+- Record reading sessions locally before attempting synchronization.
+- Retry pending session synchronization on a later app-driven sync opportunity.
+- Cache account reading statistics locally for display when available.
+
+## Offline and Network Boundaries
+
+- Room is the source of truth for story and chapter content already cached on the device, reader preferences, and locally recorded reading state.
+- Remote catalog discovery, uncached chapters, authentication, publishing, and cross-device synchronization require network access.
+- Offline support does not imply that uncached provider content is available without a connection.
+- A provider outage must not erase cached stories, cached chapters, or pending local reading state.
+- The emulator debug URL is not a physical-device URL. Physical-device testing must use a reachable LAN or deployed API endpoint; production endpoints must use HTTPS.
+
+## Quality Requirements
+
+- Keep presentation, domain contracts, and data implementations separated.
+- Expose immutable UI state and keep database/network work off the main thread.
+- Cover API contracts, mapping, repository reconciliation, reader progress, and account state with deterministic tests.
+- Run instrumentation tests on an emulator or device before claiming runtime validation. Compilation alone is not runtime validation.
+- Do not claim a release-ready offline experience until cached-content behavior has been exercised with networking disabled on a device.
+
+## Explicitly Deferred
+
+These items belong to a future product decision, not the current Android implementation plan:
+
+- Android-side website scraping, source plugins, or provider-specific extraction.
+- A WorkManager batch-download queue or a separate chapter-file storage pipeline.
+- Cloud backup beyond the existing shared account and synchronization contracts.
+- New formats or integrations not present in the shared product/API contract.
 
