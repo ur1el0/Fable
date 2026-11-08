@@ -99,15 +99,15 @@ fun StoryDto.toEntity(previous: StoryEntity? = null): StoryEntity = StoryEntity(
     shelfUpdatedAtUtc = previous?.shelfUpdatedAtUtc ?: updatedAtUtc
 )
 
-fun ChapterDto.toEntity() = ChapterEntity(
-    id = id,
-    storyId = storyId,
+fun ChapterDto.toEntity(previous: ChapterEntity? = null) = ChapterEntity(
+    id = id.ifBlank { previous?.id.orEmpty() },
+    storyId = storyId.ifBlank { previous?.storyId.orEmpty() },
     chapterNumber = chapterNumber,
-    title = title,
-    content = content.orEmpty(),
-    wordCount = wordCount,
-    createdAtUtc = createdAtUtc,
-    pageUrls = pageUrls
+    title = title.ifBlank { previous?.title.orEmpty() },
+    content = content?.takeIf(String::isNotBlank) ?: previous?.content.orEmpty(),
+    wordCount = wordCount.takeIf { it > 0 } ?: previous?.wordCount ?: 0,
+    createdAtUtc = createdAtUtc.ifBlank { previous?.createdAtUtc.orEmpty() },
+    pageUrls = pageUrls.ifEmpty { previous?.pageUrls.orEmpty() }
 )
 
 fun Chapter.toEntity() = ChapterEntity(

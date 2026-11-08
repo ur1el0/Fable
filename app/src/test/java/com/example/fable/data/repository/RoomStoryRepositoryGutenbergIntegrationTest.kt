@@ -4,7 +4,9 @@ import com.example.fable.data.local.ChapterEntity
 import com.example.fable.data.local.ShelfStateEntity
 import com.example.fable.data.local.StoryDao
 import com.example.fable.data.local.StoryEntity
+import com.example.fable.data.local.toEntity
 import com.example.fable.data.remote.FableApiService
+import com.example.fable.data.remote.dto.StoryDto
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
@@ -23,6 +25,86 @@ import org.junit.Test
 import java.util.concurrent.CopyOnWriteArrayList
 
 class RoomStoryRepositoryGutenbergIntegrationTest {
+    @Test
+    fun chapterRefreshRetainsCachedBodiesAndChaptersMissingFromPartialResponse() = runTest {
+        val storyId = "manga-story"
+        val dao = InMemoryStoryDao()
+        dao.upsertStories(
+            listOf(
+                StoryDto(
+                    id = storyId,
+                    title = "Series",
+                    sourceProvider = "MANGADEX",
+                    providerId = "manga-1"
+                ).toEntity()
+            )
+        )
+        dao.upsertChapters(
+            listOf(
+                ChapterEntity(
+                    id = "cached-chapter-1",
+                    storyId = storyId,
+                    chapterNumber = 1,
+                    title = "Cached title",
+                    content = "Downloaded chapter body",
+                    wordCount = 215,
+                    createdAtUtc = "2026-01-01T00:00:00Z",
+                    pageUrls = listOf("https://images.test/cached-page.jpg")
+                ),
+                ChapterEntity(
+                    id = "cached-chapter-80",
+                    storyId = storyId,
+                    chapterNumber = 80,
+                    title = "Chapter 80",
+                    content = "Downloaded later chapter",
+                    wordCount = 180,
+                    createdAtUtc = "2026-01-02T00:00:00Z",
+                    pageUrls = emptyList()
+                )
+            )
+        )
+        val api = FableApiService(
+            baseUrl = "https://fable.test/api/v1/",
+            client = OkHttpClient.Builder().addInterceptor(
+                Interceptor { chain ->
+                    val request = chain.request()
+                    assertEquals("/api/v1/public/manga/manga-1/chapters", request.url.encodedPath)
+                    jsonResponse(
+                        request,
+                        200,
+                        """
+                        [{
+                          "id":"remote-chapter-1",
+                          "storyId":"$storyId",
+                          "chapterNumber":1,
+                          "title":"Chapter One",
+                          "content":null,
+                          "wordCount":0,
+                          "pageUrls":[]
+                        }]
+                        """.trimIndent()
+                    )
+                }
+            ).build()
+        )
+        val repository = RoomStoryRepository(
+            api = api,
+            dao = dao,
+            deviceId = "device-test",
+            accessTokenProvider = { null }
+        )
+
+        repository.refreshChapters(storyId).getOrThrow()
+
+        val chapters = repository.observeChapters(storyId).first()
+        assertEquals(listOf(1, 80), chapters.map { it.chapterNumber })
+        assertEquals("Chapter One", chapters[0].title)
+        assertEquals("Downloaded chapter body", chapters[0].content)
+        assertEquals(215, chapters[0].wordCount)
+        assertEquals(listOf("https://images.test/cached-page.jpg"), chapters[0].pageUrls)
+        assertEquals("Downloaded later chapter", chapters[1].content)
+    }
+
     @Test
     fun openingCachedGutenbergStoryHydratesChaptersWithoutCallingUncachedStoryDetailEndpoint() = runTest {
         val storyId = "00000000-0000-0000-0000-00000000000b"
