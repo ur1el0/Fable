@@ -36,7 +36,7 @@ Offline availability is limited to data already stored locally. Uncached discove
 
 ## Runtime Configuration
 
-The API base URL is supplied through the Gradle property fableApiBaseUrl. The emulator development default uses the emulator host bridge and is not reachable from a physical phone. Device testing must configure a LAN or deployed URL reachable from the device. Production configuration must use HTTPS.
+Debug builds use the Gradle property fableApiBaseUrl; the emulator development default uses the emulator host bridge and is not reachable from a physical phone. Device testing must configure a LAN or deployed URL reachable from the device. Release builds use the separate fableReleaseApiBaseUrl property and require an HTTPS URL ending in /api/v1/.
 
 ## Verification Baseline
 
