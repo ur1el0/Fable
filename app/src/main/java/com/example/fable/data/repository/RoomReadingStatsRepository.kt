@@ -33,11 +33,12 @@ class RoomReadingStatsRepository(
     ): Result<Unit> = runCatching {
         require(ownerId.isNotBlank()) { "A shelf owner is required to record a reading session." }
         if (secondsRead < MIN_SESSION_SECONDS) return@runCatching
+        val normalizedStoryId = normalizeStoryIdForBackend(storyId)
         dao.insertSession(
             ReadingSessionEntity(
                 ownerId = ownerId,
                 id = UUID.randomUUID().toString(),
-                storyId = storyId,
+                storyId = normalizedStoryId,
                 secondsRead = secondsRead.coerceAtMost(MAX_SESSION_SECONDS),
                 readAtUtc = Instant.now().toString(),
                 isCompleted = isCompleted
@@ -52,9 +53,17 @@ class RoomReadingStatsRepository(
         syncMutex.withLock sync@{
             for (session in dao.getPendingSessions(ownerId)) {
                 if (accessTokenProvider() != token) return@sync
-                api.recordReadingSession(session.toRequestDto(), token)
-                if (accessTokenProvider() != token) return@sync
-                dao.deleteSession(ownerId, session.id)
+                try {
+                    api.recordReadingSession(session.toRequestDto(), token)
+                    if (accessTokenProvider() != token) return@sync
+                    dao.deleteSession(ownerId, session.id)
+                } catch (exception: Exception) {
+                    if (isUnrecoverablePayloadError(exception)) {
+                        dao.deleteSession(ownerId, session.id)
+                    } else {
+                        throw exception
+                    }
+                }
             }
 
             if (accessTokenProvider() != token) return@sync
@@ -62,6 +71,25 @@ class RoomReadingStatsRepository(
             if (accessTokenProvider() != token) return@sync
             dao.upsertStats(stats.toEntity(ownerId, Instant.now().toString()))
         }
+    }
+
+    private fun normalizeStoryIdForBackend(storyId: String): String {
+        if (runCatching { UUID.fromString(storyId) }.isSuccess) return storyId
+        val gutenbergNumber = storyId.removePrefix("gutenberg-").toLongOrNull()
+            ?.takeIf { it in 1..Int.MAX_VALUE.toLong() }
+        if (gutenbergNumber != null) {
+            return UUID(0L, gutenbergNumber).toString()
+        }
+        return storyId
+    }
+
+    private fun isUnrecoverablePayloadError(exception: Throwable): Boolean {
+        if (exception is com.example.fable.data.remote.FableApiException) {
+            return exception.statusCode in 400..499 &&
+                exception.statusCode != 401 &&
+                exception.statusCode != 429
+        }
+        return false
     }
 
     private companion object {

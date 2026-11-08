@@ -9,6 +9,7 @@ import com.example.fable.data.local.toEntity
 import com.example.fable.data.local.toShelfState
 import com.example.fable.data.local.toSyncDto
 import com.example.fable.data.remote.FableApiService
+import com.example.fable.data.remote.dto.ChapterDto
 import com.example.fable.data.remote.dto.CreateStoryRequestDto
 import com.example.fable.data.remote.dto.ShelfSyncItemDto
 import com.example.fable.data.remote.dto.ShelfSyncRequestDto
@@ -27,6 +28,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -92,19 +94,23 @@ class RoomStoryRepository(
                 existing?.providerId?.let { api.fetchMangaStory(it) } ?: api.fetchStory(storyId)
             else -> api.fetchStory(storyId)
         }
-        dao.upsertStories(listOf(remote.toEntity(existing)))
+        val targetStoryId = remote.id.ifBlank { storyId }
+        dao.upsertStories(listOf(remote.copy(id = targetStoryId).toEntity(existing)))
         val embeddedChapters = remote.chapters
-            ?.map { it.toEntity().copy(storyId = remote.id.ifBlank { storyId }) }
             .orEmpty()
         if (embeddedChapters.isNotEmpty()) {
-            val targetStoryId = remote.id.ifBlank { storyId }
-            dao.replaceChapters(targetStoryId, embeddedChapters)
-            hydrateStoryFromChapters(targetStoryId, embeddedChapters)
+            val chapters = mergeChapters(targetStoryId, embeddedChapters)
+            dao.replaceChapters(targetStoryId, chapters)
+            hydrateStoryFromChapters(targetStoryId, chapters)
         }
     }
 
     override suspend fun refreshChapters(storyId: String): Result<Unit> = runCatching {
-        val story = dao.getStory(storyId)
+        var story = dao.getStory(storyId)
+        if (story == null) {
+            refreshStory(storyId).getOrThrow()
+            story = dao.getStory(storyId)
+        }
         val provider = SourceProvider.fromWireValue(story?.sourceProvider.orEmpty())
         val gutenbergId = resolveGutenbergId(story, storyId)
         val remoteChapters = when {
@@ -114,40 +120,43 @@ class RoomStoryRepository(
                 story?.providerId?.let { api.fetchMangaChapters(it, limit = 50) } ?: api.fetchChapters(storyId)
             else -> api.fetchChapters(storyId)
         }
-        val chapters = remoteChapters.map { it.toEntity().copy(storyId = storyId) }
+        val chapters = mergeChapters(storyId, remoteChapters)
         dao.replaceChapters(storyId, chapters)
         hydrateStoryFromChapters(storyId, chapters)
     }
 
     override suspend fun refreshChapter(storyId: String, chapterNumber: Int): Result<Unit> = runCatching {
-        val story = dao.getStory(storyId)
+        var story = dao.getStory(storyId)
+        if (story == null) {
+            refreshStory(storyId).getOrThrow()
+            story = dao.getStory(storyId)
+        }
         val provider = SourceProvider.fromWireValue(story?.sourceProvider.orEmpty())
         val gutenbergId = resolveGutenbergId(story, storyId)
         when {
             (provider == SourceProvider.GUTENBERG || gutenbergId != null) && gutenbergId != null -> {
-                val chapters = api.fetchGutenbergChapters(gutenbergId)
-                    .map { it.toEntity().copy(storyId = storyId) }
-                if (chapters.none { it.chapterNumber == chapterNumber }) {
+                val remoteChapters = api.fetchGutenbergChapters(gutenbergId)
+                if (remoteChapters.none { it.chapterNumber == chapterNumber }) {
                     error("Chapter $chapterNumber is not available.")
                 }
+                val chapters = mergeChapters(storyId, remoteChapters)
                 dao.replaceChapters(storyId, chapters)
                 hydrateStoryFromChapters(storyId, chapters)
             }
             provider == SourceProvider.MANGADEX && !story?.providerId.isNullOrBlank() -> {
-                val chapters = api.fetchMangaChapters(requireNotNull(story?.providerId), limit = 50)
-                    .map { it.toEntity().copy(storyId = storyId) }
-                if (chapters.none { it.chapterNumber == chapterNumber }) {
+                val remoteChapters = api.fetchMangaChapters(requireNotNull(story?.providerId), limit = 50)
+                if (remoteChapters.none { it.chapterNumber == chapterNumber }) {
                     error("Chapter $chapterNumber is not available.")
                 }
+                val chapters = mergeChapters(storyId, remoteChapters)
                 dao.replaceChapters(storyId, chapters)
                 hydrateStoryFromChapters(storyId, chapters)
             }
             else -> {
-                val chapter = api.fetchChapter(storyId, chapterNumber)
-                    .toEntity()
-                    .copy(storyId = storyId)
-                dao.upsertChapters(listOf(chapter))
-                hydrateStoryFromChapters(storyId, listOf(chapter))
+                val remoteChapter = api.fetchChapter(storyId, chapterNumber)
+                val chapters = mergeChapters(storyId, listOf(remoteChapter))
+                dao.replaceChapters(storyId, chapters)
+                hydrateStoryFromChapters(storyId, chapters)
             }
         }
     }
@@ -280,11 +289,32 @@ class RoomStoryRepository(
         return entities
     }
 
+    private suspend fun mergeChapters(
+        storyId: String,
+        remoteChapters: List<ChapterDto>
+    ): List<ChapterEntity> {
+        val cachedByNumber = dao.observeChapters(storyId).first()
+            .associateBy(ChapterEntity::chapterNumber)
+        val remoteByNumber = remoteChapters.associateBy(ChapterDto::chapterNumber)
+        val retained = cachedByNumber.map { (chapterNumber, cached) ->
+            remoteByNumber[chapterNumber]
+                ?.toEntity(cached)
+                ?.copy(storyId = storyId)
+                ?: cached
+        }
+        val additions = remoteByNumber
+            .filterKeys { chapterNumber -> chapterNumber !in cachedByNumber }
+            .values
+            .map { it.toEntity().copy(storyId = storyId) }
+        return (retained + additions).sortedBy(ChapterEntity::chapterNumber)
+    }
+
     private suspend fun hydrateStoryFromChapters(storyId: String, chapters: List<ChapterEntity>) {
         if (chapters.isEmpty()) return
         val story = dao.getStory(storyId) ?: return
         val sortedChapters = chapters.sortedBy(ChapterEntity::chapterNumber)
-        val firstChapter = sortedChapters.first()
+        val chapterOne = sortedChapters.firstOrNull { it.chapterNumber == 1 }
+        val maxChapterNumber = sortedChapters.maxOf { it.chapterNumber }
         val totalWords = sortedChapters.sumOf { chapter ->
             if (chapter.wordCount > 0) {
                 chapter.wordCount
@@ -294,11 +324,11 @@ class RoomStoryRepository(
         }
         val computedReadTime = if (totalWords > 0) (totalWords / 200).coerceAtLeast(1) else 0
         val updatedStory = story.copy(
-            chapter = story.chapter.ifBlank { firstChapter.title },
-            synopsis = story.synopsis.ifBlank { extractOpeningExcerpt(sortedChapters) },
-            content = story.content.ifBlank { firstChapter.content },
+            chapter = if (chapterOne != null) story.chapter.ifBlank { chapterOne.title } else story.chapter,
+            synopsis = if (chapterOne != null) story.synopsis.ifBlank { extractOpeningExcerpt(listOf(chapterOne)) } else story.synopsis,
+            content = if (chapterOne != null) story.content.ifBlank { chapterOne.content } else story.content,
             readTimeMinutes = if (story.readTimeMinutes > 0) story.readTimeMinutes else computedReadTime,
-            totalChapters = maxOf(story.totalChapters, sortedChapters.size)
+            totalChapters = maxOf(story.totalChapters, maxChapterNumber, sortedChapters.size)
         )
         if (updatedStory != story) {
             dao.upsertStories(listOf(updatedStory))
@@ -393,8 +423,16 @@ class RoomStoryRepository(
                 val gutenbergId = gutenbergIdForStoryId(storyId)
                 if (gutenbergId != null) api.fetchGutenbergStory(gutenbergId) else api.fetchStory(storyId)
             }.getOrNull() ?: return@forEach
-            val existing = dao.getStory(remote.id)
-            dao.upsertStories(listOf(remote.toEntity(existing)))
+            val targetStoryId = remote.id.ifBlank { storyId }
+            val existing = dao.getStory(targetStoryId)
+            dao.upsertStories(listOf(remote.copy(id = targetStoryId).toEntity(existing)))
+            val embeddedChapters = remote.chapters
+                ?.map { it.toEntity().copy(storyId = targetStoryId) }
+                .orEmpty()
+            if (embeddedChapters.isNotEmpty()) {
+                dao.replaceChapters(targetStoryId, embeddedChapters)
+                hydrateStoryFromChapters(targetStoryId, embeddedChapters)
+            }
         }
     }
 
