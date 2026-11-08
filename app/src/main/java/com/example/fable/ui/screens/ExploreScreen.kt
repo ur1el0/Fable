@@ -23,6 +23,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -62,9 +63,10 @@ fun ExploreScreen(
     var format by rememberSaveable { mutableStateOf("All") }
     var selectedCatalog by rememberSaveable { mutableStateOf(StoryCatalog.FABLE) }
     val catalogStories = if (selectedCatalog == StoryCatalog.FABLE) stories else providerStories
-    val filtered = remember(catalogStories, query, format) {
+    val filtered = remember(catalogStories, selectedCatalog, query, format) {
         catalogStories.filter { story ->
-            val matchesQuery = query.isBlank() || story.title.contains(query, true) || story.author.contains(query, true)
+            val matchesQuery = selectedCatalog != StoryCatalog.FABLE ||
+                query.isBlank() || story.title.contains(query, true) || story.author.contains(query, true)
             val matchesFormat = format == "All" || story.contentFormat.name.equals(format, true)
             matchesQuery && matchesFormat
         }
@@ -177,6 +179,29 @@ fun ExploreScreen(
                     else -> "Stories"
                 }
             )
+        }
+        if (!providerErrorMessage.isNullOrBlank() && filtered.isNotEmpty()) {
+            item {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = MaterialTheme.shapes.small,
+                    color = MaterialTheme.colorScheme.errorContainer
+                ) {
+                    Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
+                        Text(
+                            text = "Catalog refresh failed. Showing saved results. $providerErrorMessage",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                        TextButton(
+                            onClick = { onSearchProvider(selectedCatalog, query) },
+                            modifier = Modifier.align(Alignment.End)
+                        ) {
+                            Text("Retry")
+                        }
+                    }
+                }
+            }
         }
         if (filtered.isEmpty()) {
             item {

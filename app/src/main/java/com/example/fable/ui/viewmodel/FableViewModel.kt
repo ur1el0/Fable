@@ -7,6 +7,7 @@ import com.example.fable.domain.model.Chapter
 import com.example.fable.domain.model.GenreCategory
 import com.example.fable.domain.model.ReadingStats
 import com.example.fable.domain.model.ReaderPreferences
+import com.example.fable.domain.model.SourceProvider
 import com.example.fable.domain.model.Story
 import com.example.fable.domain.model.StoryCatalog
 import com.example.fable.domain.model.UpdateFeed
@@ -129,8 +130,9 @@ class FableViewModel(
             }
             return
         }
+        val cachedStories = cachedProviderStories(catalog, query)
         mutableUiState.update {
-            it.copy(providerStories = emptyList(), isSearchingProvider = true, providerErrorMessage = null)
+            it.copy(providerStories = cachedStories, isSearchingProvider = true, providerErrorMessage = null)
         }
         providerSearchJob = viewModelScope.launch {
             delay(350)
@@ -148,10 +150,28 @@ class FableViewModel(
                 },
                 onFailure = { error ->
                     mutableUiState.update {
-                        it.copy(providerStories = emptyList(), isSearchingProvider = false, providerErrorMessage = error.message)
+                        it.copy(
+                            isSearchingProvider = false,
+                            providerErrorMessage = error.message?.takeIf(String::isNotBlank)
+                                ?: "Could not refresh the provider catalog."
+                        )
                     }
                 }
             )
+        }
+    }
+
+    private fun cachedProviderStories(catalog: StoryCatalog, query: String): List<Story> {
+        val provider = when (catalog) {
+            StoryCatalog.FABLE -> return emptyList()
+            StoryCatalog.GUTENBERG -> SourceProvider.GUTENBERG
+            StoryCatalog.MANGA -> SourceProvider.MANGADEX
+        }
+        val normalizedQuery = query.trim().take(200)
+        return mutableUiState.value.stories.filter { story ->
+            story.sourceProvider == provider &&
+                (normalizedQuery.isEmpty() || listOf(story.title, story.author, story.genre, story.synopsis)
+                    .any { field -> field.contains(normalizedQuery, ignoreCase = true) })
         }
     }
 
