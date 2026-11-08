@@ -1,9 +1,13 @@
+import java.net.URI
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
     alias(libs.plugins.kotlin.serialization)
 }
+
+val releaseApiBaseUrl = providers.gradleProperty("fableReleaseApiBaseUrl").orElse("")
 
 android {
     namespace = "com.example.fable"
@@ -29,7 +33,7 @@ android {
             buildConfigField("String", "FABLE_API_BASE_URL", "\"$apiBaseUrl\"")
         }
         release {
-            val apiBaseUrl = providers.gradleProperty("fableApiBaseUrl").orElse("").get()
+            val apiBaseUrl = releaseApiBaseUrl.get()
             buildConfigField("String", "FABLE_API_BASE_URL", "\"$apiBaseUrl\"")
             optimization {
                 enable = false
@@ -49,6 +53,30 @@ android {
         arg("room.schemaLocation", "$projectDir/schemas")
     }
     sourceSets.getByName("androidTest").assets.directories.add("$projectDir/schemas")
+}
+
+val validateReleaseApiBaseUrl = tasks.register("validateReleaseApiBaseUrl") {
+    inputs.property("fableReleaseApiBaseUrl", releaseApiBaseUrl)
+    doLast {
+        val configuredUrl = inputs.properties["fableReleaseApiBaseUrl"] as String
+        val uri = runCatching { URI(configuredUrl.trim()) }.getOrNull()
+        val isValid = uri != null &&
+            uri.scheme.equals("https", ignoreCase = true) &&
+            !uri.host.isNullOrBlank() &&
+            uri.rawUserInfo == null &&
+            uri.rawQuery == null &&
+            uri.rawFragment == null &&
+            uri.path.endsWith("/api/v1/")
+        require(isValid) {
+            "Release builds require -PfableReleaseApiBaseUrl=https://<host>/api/v1/."
+        }
+    }
+}
+
+tasks.configureEach {
+    if (name == "preReleaseBuild") {
+        dependsOn(validateReleaseApiBaseUrl)
+    }
 }
 
 dependencies {
