@@ -31,9 +31,12 @@ android {
         release {
             val apiBaseUrl = providers.gradleProperty("fableApiBaseUrl").orElse("").get()
             buildConfigField("String", "FABLE_API_BASE_URL", "\"$apiBaseUrl\"")
-            optimization {
-                enable = false
-            }
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "src/main/keepRules/rules.keep"
+            )
         }
     }
     compileOptions {
