@@ -130,6 +130,74 @@ class RoomStoryRepositoryGutenbergIntegrationTest {
         assertTrue(secondSearch.single().synopsis.startsWith("Alice was beginning to get very tired"))
     }
 
+    @Test
+    fun refreshingSubsequentChapterDoesNotCorruptChapterOneFallbackOrSynopsis() = runTest {
+        val storyId = "11111111-2222-3333-4444-555555555555"
+        val dao = InMemoryStoryDao()
+        val api = FableApiService(
+            baseUrl = "https://fable.test/api/v1/",
+            client = OkHttpClient.Builder().addInterceptor { chain ->
+                val request = chain.request()
+                val path = request.url.encodedPath
+                when (path) {
+                    "/api/v1/stories/$storyId" -> jsonResponse(
+                        request,
+                        200,
+                        """
+                        {
+                          "id": "$storyId",
+                          "title": "Multi-Chapter Story",
+                          "author": "Author",
+                          "genre": "Fantasy",
+                          "chapter": "",
+                          "synopsis": "",
+                          "content": "",
+                          "readTimeMinutes": 0,
+                          "totalChapters": 0
+                        }
+                        """.trimIndent()
+                    )
+                    "/api/v1/stories/$storyId/chapters/2" -> jsonResponse(
+                        request,
+                        200,
+                        """
+                        {
+                          "id": "chap-2",
+                          "storyId": "$storyId",
+                          "chapterNumber": 2,
+                          "title": "Chapter Two",
+                          "content": "This is chapter two content, not chapter one.",
+                          "wordCount": 100,
+                          "createdAtUtc": "2026-11-06T12:00:00Z"
+                        }
+                        """.trimIndent()
+                    )
+                    else -> error("Unexpected path: $path")
+                }
+            }.build()
+        )
+        val repository = RoomStoryRepository(
+            api = api,
+            dao = dao,
+            deviceId = "device-test",
+            accessTokenProvider = { null }
+        )
+
+        // Story starts uncached. Refreshing Chapter 2 should fetch the story first,
+        // and must not use Chapter 2's body as the story fallback content or synopsis.
+        assertTrue(repository.refreshChapter(storyId, 2).isSuccess)
+
+        val story = repository.observeStory(storyId).first()!!
+        assertEquals("", story.content)
+        assertEquals("", story.synopsis)
+        assertEquals("", story.chapter)
+        assertTrue(story.totalChapters >= 2)
+
+        val chapterTwo = dao.getChapter(storyId, 2)
+        assertEquals("chap-2", chapterTwo?.id)
+        assertEquals("This is chapter two content, not chapter one.", chapterTwo?.content)
+    }
+
     private fun jsonResponse(request: Request, statusCode: Int, body: String): Response =
         Response.Builder()
             .request(request)

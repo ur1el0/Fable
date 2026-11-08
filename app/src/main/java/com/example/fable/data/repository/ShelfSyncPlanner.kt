@@ -4,6 +4,7 @@ import com.example.fable.data.local.ShelfStateEntity
 import com.example.fable.data.local.toEntity
 import com.example.fable.data.local.toSyncDto
 import com.example.fable.data.remote.dto.ShelfSyncItemDto
+import java.time.Instant
 import java.time.OffsetDateTime
 
 internal data class ShelfSyncPlan(
@@ -34,5 +35,16 @@ internal fun planShelfSync(
     return ShelfSyncPlan(serverWins = serverWins, upload = upload)
 }
 
-internal fun isNewer(localTimestamp: String, remoteTimestamp: String): Boolean =
-    OffsetDateTime.parse(localTimestamp).toInstant() > OffsetDateTime.parse(remoteTimestamp).toInstant()
+internal fun isNewer(localTimestamp: String, remoteTimestamp: String): Boolean {
+    val localInstant = parseTimestamp(localTimestamp) ?: return false
+    val remoteInstant = parseTimestamp(remoteTimestamp) ?: return true
+    return localInstant > remoteInstant
+}
+
+private fun parseTimestamp(timestamp: String): Instant? = runCatching {
+    try {
+        Instant.parse(timestamp)
+    } catch (_: Exception) {
+        OffsetDateTime.parse(timestamp).toInstant()
+    }
+}.getOrNull()

@@ -26,6 +26,10 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
@@ -69,8 +73,8 @@ class FableApiService(
 
     suspend fun fetchGutenbergStories(topic: String? = null, search: String? = null): List<StoryDto> =
         get(url("public", "gutenberg") {
-            addQueryParameter("topic", topic)
-            addQueryParameter("search", search)
+            topic?.takeIf(String::isNotBlank)?.let { addQueryParameter("topic", it) }
+            search?.takeIf(String::isNotBlank)?.let { addQueryParameter("search", it) }
         })
 
     suspend fun fetchGutenbergStory(gutenbergId: Int): StoryDto =
@@ -85,7 +89,7 @@ class FableApiService(
         offset: Int = 0
     ): List<StoryDto> = get(
         url("public", "manga") {
-            addQueryParameter("search", search)
+            search?.takeIf(String::isNotBlank)?.let { addQueryParameter("search", it) }
             addQueryParameter("limit", limit.toString())
             addQueryParameter("offset", offset.toString())
         }
@@ -171,9 +175,7 @@ class FableApiService(
         client.newCall(request).execute().use { response ->
             val payload = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
-                val detail = runCatching { json.decodeFromString<ApiErrorDto>(payload).detail }
-                    .getOrNull()
-                    ?.takeIf(String::isNotBlank)
+                val detail = parseErrorDetail(payload)
                 throw FableApiException(response.code, detail ?: "The server could not complete the request.")
             }
             json.decodeFromString<T>(payload)
@@ -194,9 +196,7 @@ class FableApiService(
             client.newCall(request).execute().use { response ->
                 val payload = response.body?.string().orEmpty()
                 if (!response.isSuccessful) {
-                    val detail = runCatching { json.decodeFromString<ApiErrorDto>(payload).detail }
-                        .getOrNull()
-                        ?.takeIf(String::isNotBlank)
+                    val detail = parseErrorDetail(payload)
                     throw FableApiException(response.code, detail ?: "The server could not complete the request.")
                 }
                 json.decodeFromString<T>(payload)
@@ -215,9 +215,7 @@ class FableApiService(
         client.newCall(requestBuilder.build()).execute().use { response ->
             val payload = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
-                val detail = runCatching { json.decodeFromString<ApiErrorDto>(payload).detail }
-                    .getOrNull()
-                    ?.takeIf(String::isNotBlank)
+                val detail = parseErrorDetail(payload)
                 throw FableApiException(response.code, detail ?: "The server could not complete the request.")
             }
             json.decodeFromString<T>(payload)
@@ -230,9 +228,7 @@ class FableApiService(
         client.newCall(requestBuilder.build()).execute().use { response ->
             if (!response.isSuccessful) {
                 val payload = response.body?.string().orEmpty()
-                val detail = runCatching { json.decodeFromString<ApiErrorDto>(payload).detail }
-                    .getOrNull()
-                    ?.takeIf(String::isNotBlank)
+                val detail = parseErrorDetail(payload)
                 throw FableApiException(response.code, detail ?: "The server could not complete the request.")
             }
         }
@@ -249,13 +245,28 @@ class FableApiService(
         client.newCall(requestBuilder.build()).execute().use { response ->
             if (!response.isSuccessful) {
                 val payload = response.body?.string().orEmpty()
-                val detail = runCatching { json.decodeFromString<ApiErrorDto>(payload).detail }
-                    .getOrNull()
-                    ?.takeIf(String::isNotBlank)
+                val detail = parseErrorDetail(payload)
                 throw FableApiException(response.code, detail ?: "The server could not complete the request.")
             }
         }
     }
+
+    private fun parseErrorDetail(payload: String): String? = runCatching {
+        val element = json.parseToJsonElement(payload)
+        val detail = (element as? JsonObject)?.get("detail") ?: return null
+        when (detail) {
+            is JsonPrimitive -> detail.content.takeIf(String::isNotBlank)
+            is JsonArray -> detail
+                .mapNotNull { item ->
+                    (item as? JsonObject)?.get("msg")?.let { (it as? JsonPrimitive)?.content }
+                        ?: (item as? JsonPrimitive)?.content
+                }
+                .filter(String::isNotBlank)
+                .joinToString("; ")
+                .takeIf(String::isNotBlank)
+            else -> null
+        }
+    }.getOrNull()
 }
 
 class FableApiException(val statusCode: Int, message: String) : Exception(message)

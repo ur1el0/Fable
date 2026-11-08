@@ -290,6 +290,46 @@ class FableApiServiceTest {
         assertTrue(recorder.requests.isEmpty())
     }
 
+    @Test
+    fun decodesFastApiValidationErrorsFromListDetailIn422Response() = runTest {
+        val recorder = JsonResponseInterceptor(
+            statusCode = 422,
+            body = """{"detail":[{"loc":["body","password"],"msg":"String should have at least 12 characters","type":"string_too_short"}]}"""
+        )
+        val service = service(recorder)
+
+        val error = try {
+            service.register(com.example.fable.data.remote.dto.RegisterRequestDto("user@test.com", "short", "User"))
+            throw AssertionError("Expected FableApiException")
+        } catch (exception: FableApiException) {
+            exception
+        }
+
+        assertEquals(422, error.statusCode)
+        assertEquals("String should have at least 12 characters", error.message)
+    }
+
+    @Test
+    fun fetchStoriesOmitsBlankAndNullFilterQueryParameters() = runTest {
+        val recorder = JsonResponseInterceptor(body = "[]")
+        val service = service(recorder)
+
+        service.fetchStories(
+            genre = null,
+            search = "  ",
+            since = null,
+            limit = 50,
+            offset = 0
+        )
+
+        val request = recorder.requests.single()
+        assertNull(request.url.queryParameter("genre"))
+        assertNull(request.url.queryParameter("search"))
+        assertNull(request.url.queryParameter("since"))
+        assertEquals("50", request.url.queryParameter("limit"))
+        assertEquals("0", request.url.queryParameter("offset"))
+    }
+
     private fun service(interceptor: JsonResponseInterceptor) = FableApiService(
         baseUrl = "https://fable.test/api/v1/",
         client = OkHttpClient.Builder().addInterceptor(interceptor).build()
