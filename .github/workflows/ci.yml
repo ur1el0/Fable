@@ -31,6 +31,21 @@ jobs:
           java-version: "17"
           cache: gradle
 
+      - name: Bootstrap Gradle distribution with retries
+        shell: bash
+        run: |
+          for attempt in 1 2 3 4; do
+            if ./gradlew --version; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 4 ]; then
+              delay=$((attempt * 5))
+              echo "Gradle distribution download failed; retrying in ${delay}s."
+              sleep "$delay"
+            fi
+          done
+          exit 1
+
       - name: Run unit tests and lint
         run: ./gradlew :app:testDebugUnitTest :app:lintDebug
 
