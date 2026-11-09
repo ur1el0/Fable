@@ -41,7 +41,7 @@ data class FableUiState(
     val isRefreshing: Boolean = false,
     val isPublishing: Boolean = false,
     val publishErrorMessage: String? = null,
-    val publishNoticeMessage: String? = null,
+    val publishedStory: Story? = null,
     val isSearchingProvider: Boolean = false,
     val providerErrorMessage: String? = null,
     val errorMessage: String? = null
@@ -164,15 +164,16 @@ class FableViewModel(
         onPublished: suspend () -> Unit = {}
     ) {
         if (mutableUiState.value.isPublishing) return
-        mutableUiState.update { it.copy(isPublishing = true, publishErrorMessage = null, publishNoticeMessage = null) }
+        mutableUiState.update {
+            it.copy(isPublishing = true, publishErrorMessage = null, publishedStory = null)
+        }
         viewModelScope.launch {
             repository.publishStory(title, genre, chapterTitle, synopsis, content).fold(
                 onSuccess = { story ->
-                    mutableUiState.update {
-                        it.copy(isPublishing = false, publishErrorMessage = null, publishNoticeMessage = "Story published.")
-                    }
                     runCatching { onPublished() }
-                    openStory(story)
+                    mutableUiState.update {
+                        it.copy(isPublishing = false, publishErrorMessage = null, publishedStory = story)
+                    }
                 },
                 onFailure = { error ->
                     mutableUiState.update {
@@ -184,6 +185,10 @@ class FableViewModel(
                 }
             )
         }
+    }
+
+    fun dismissPublishedStory() {
+        mutableUiState.update { it.copy(publishedStory = null) }
     }
 
     fun setShelfOwner(ownerId: String?) {
@@ -230,6 +235,7 @@ class FableViewModel(
         mutableUiState.update {
             it.copy(
                 selectedStory = story,
+                publishedStory = null,
                 chapters = emptyList(),
                 selectedChapterNumber = story.lastReadChapterNumber,
                 isLoadingStory = true,
@@ -292,6 +298,7 @@ class FableViewModel(
         mutableUiState.update {
             it.copy(
                 selectedStory = null,
+                publishedStory = null,
                 chapters = emptyList(),
                 selectedChapterNumber = null,
                 isLoadingStory = false,
