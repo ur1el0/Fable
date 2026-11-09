@@ -12,15 +12,17 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ChapterEntity::class,
         ShelfStateEntity::class,
         ReadingSessionEntity::class,
-        ReadingStatsEntity::class
+        ReadingStatsEntity::class,
+        WriterDraftEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = true
 )
 @TypeConverters(FableTypeConverters::class)
 abstract class FableDatabase : RoomDatabase() {
     abstract fun storyDao(): StoryDao
     abstract fun readingStatsDao(): ReadingStatsDao
+    abstract fun writerDraftDao(): WriterDraftDao
 
     companion object {
         val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -77,6 +79,22 @@ abstract class FableDatabase : RoomDatabase() {
                         `totalMinutesRead` INTEGER NOT NULL,
                         `streakDays` INTEGER NOT NULL,
                         `updatedAtUtc` TEXT NOT NULL,
+                        PRIMARY KEY(`ownerId`)
+                    )""".trimIndent()
+                )
+            }
+        }
+
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """CREATE TABLE IF NOT EXISTS `writer_drafts` (
+                        `ownerId` TEXT NOT NULL,
+                        `title` TEXT NOT NULL,
+                        `genre` TEXT NOT NULL,
+                        `chapterTitle` TEXT NOT NULL,
+                        `synopsis` TEXT NOT NULL,
+                        `content` TEXT NOT NULL,
                         PRIMARY KEY(`ownerId`)
                     )""".trimIndent()
                 )
