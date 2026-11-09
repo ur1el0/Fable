@@ -22,6 +22,7 @@ data class WriterDraftUiState(
     val draft: WriterDraft = WriterDraft(),
     val isLoading: Boolean = true,
     val isSaving: Boolean = false,
+    val isDiscarding: Boolean = false,
     val hasUnsavedChanges: Boolean = false,
     val errorMessage: String? = null
 )
@@ -62,7 +63,7 @@ class WriterDraftViewModel(
 
     fun updateDraft(draft: WriterDraft) {
         val current = mutableUiState.value
-        if (current.isLoading || current.ownerId != activeOwnerId.value || draft == current.draft) return
+        if (current.isLoading || current.isDiscarding || current.ownerId != activeOwnerId.value || draft == current.draft) return
 
         mutableUiState.value = current.copy(
             draft = draft,
@@ -70,8 +71,67 @@ class WriterDraftViewModel(
             hasUnsavedChanges = true,
             errorMessage = null
         )
-        saveJob?.cancel()
+        scheduleSave(activeOwnerId.value, draft)
+    }
+
+    fun discardDraft() {
+        val current = mutableUiState.value
         val ownerId = activeOwnerId.value
+        if (current.isLoading || current.ownerId != ownerId || !current.draft.hasContent()) return
+
+        if (saveJobOwnerId == ownerId) saveJob?.cancel()
+        mutableUiState.value = current.copy(
+            isSaving = true,
+            isDiscarding = true,
+            hasUnsavedChanges = false,
+            errorMessage = null
+        )
+        viewModelScope.launch {
+            runCatching {
+                persistenceMutex.withLock {
+                    if (current.hasUnsavedChanges) repository.save(ownerId, current.draft)
+                    repository.clear(ownerId)
+                }
+            }.fold(
+                onSuccess = {
+                    mutableUiState.update { state ->
+                        if (activeOwnerId.value == ownerId && state.ownerId == ownerId && state.draft == current.draft) {
+                            state.copy(
+                                draft = WriterDraft(),
+                                isSaving = false,
+                                isDiscarding = false,
+                                hasUnsavedChanges = false,
+                                errorMessage = null
+                            )
+                        } else {
+                            state
+                        }
+                    }
+                },
+                onFailure = { error ->
+                    val stillCurrent = activeOwnerId.value == ownerId &&
+                        mutableUiState.value.ownerId == ownerId &&
+                        mutableUiState.value.draft == current.draft
+                    mutableUiState.update { state ->
+                        if (stillCurrent && state.ownerId == ownerId && state.draft == current.draft) {
+                            state.copy(
+                                isSaving = false,
+                                isDiscarding = false,
+                                hasUnsavedChanges = current.hasUnsavedChanges,
+                                errorMessage = error.message ?: "Draft could not be discarded."
+                            )
+                        } else {
+                            state
+                        }
+                    }
+                    if (stillCurrent && current.hasUnsavedChanges) scheduleSave(ownerId, current.draft)
+                }
+            )
+        }
+    }
+
+    private fun scheduleSave(ownerId: String, draft: WriterDraft) {
+        saveJob?.cancel()
         saveJobOwnerId = ownerId
         saveJob = viewModelScope.launch {
             delay(AUTOSAVE_DELAY_MS)
@@ -86,7 +146,7 @@ class WriterDraftViewModel(
             }.fold(
                 onSuccess = {
                     mutableUiState.update { state ->
-                        if (state.ownerId == ownerId && state.draft == snapshot.draft) {
+                        if (state.ownerId == ownerId && state.draft == snapshot.draft && state.hasUnsavedChanges) {
                             state.copy(isSaving = false, hasUnsavedChanges = false, errorMessage = null)
                         } else {
                             state
@@ -95,7 +155,7 @@ class WriterDraftViewModel(
                 },
                 onFailure = { error ->
                     mutableUiState.update { state ->
-                        if (state.ownerId == ownerId && state.draft == draft) {
+                        if (state.ownerId == ownerId && state.draft == draft && state.hasUnsavedChanges) {
                             state.copy(isSaving = false, errorMessage = error.message ?: "Draft could not be saved.")
                         } else {
                             state
@@ -105,6 +165,10 @@ class WriterDraftViewModel(
             )
         }
     }
+
+    private fun WriterDraft.hasContent(): Boolean =
+        title.isNotBlank() || genre.isNotBlank() || chapterTitle.isNotBlank() && chapterTitle != "Chapter 1" ||
+            synopsis.isNotBlank() || content.isNotBlank()
 
     suspend fun clearAfterPublished(ownerId: String, submittedDraft: WriterDraft) {
         val isCurrentSnapshot = activeOwnerId.value == ownerId &&

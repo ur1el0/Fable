@@ -108,8 +108,78 @@ class WriterDraftViewModelTest {
         }
     }
 
+    @Test
+    fun discardingFlushesThenDeletesTheActiveOwnersPendingDraft() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val repository = FakeWriterDraftRepository().apply {
+                drafts["account-a"] = draft("Account A")
+                drafts["account-b"] = draft("Account B")
+            }
+            val viewModel = WriterDraftViewModel(repository, "account-a")
+            advanceUntilIdle()
+            val editedDraft = draft("Unsaved update")
+            viewModel.updateDraft(editedDraft)
+
+            viewModel.discardDraft()
+            advanceUntilIdle()
+
+            assertNull(repository.drafts["account-a"])
+            assertEquals(draft("Account B"), repository.drafts["account-b"])
+            assertEquals(WriterDraft(), viewModel.uiState.value.draft)
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test
+    fun failedDiscardRetainsDraftAndReportsFailure() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val savedDraft = draft("Saved")
+            val repository = FakeWriterDraftRepository().apply {
+                drafts["account-a"] = savedDraft
+                failClear = true
+            }
+            val viewModel = WriterDraftViewModel(repository, "account-a")
+            advanceUntilIdle()
+
+            viewModel.discardDraft()
+            advanceUntilIdle()
+
+            assertEquals(savedDraft, repository.drafts["account-a"])
+            assertEquals(savedDraft, viewModel.uiState.value.draft)
+            assertEquals("clear failed", viewModel.uiState.value.errorMessage)
+            assertEquals(false, viewModel.uiState.value.isDiscarding)
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test
+    fun customChapterTitleAloneCanBeDiscarded() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val chapterOnlyDraft = WriterDraft(chapterTitle = "Prologue")
+            val repository = FakeWriterDraftRepository().apply {
+                drafts["account-a"] = chapterOnlyDraft
+            }
+            val viewModel = WriterDraftViewModel(repository, "account-a")
+            advanceUntilIdle()
+
+            viewModel.discardDraft()
+            advanceUntilIdle()
+
+            assertNull(repository.drafts["account-a"])
+            assertEquals(WriterDraft(), viewModel.uiState.value.draft)
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
     private class FakeWriterDraftRepository : WriterDraftRepository {
         val drafts = mutableMapOf<String, WriterDraft>()
+        var failClear = false
 
         override suspend fun get(ownerId: String): WriterDraft? = drafts[ownerId]
 
@@ -118,6 +188,7 @@ class WriterDraftViewModelTest {
         }
 
         override suspend fun clear(ownerId: String) {
+            check(!failClear) { "clear failed" }
             drafts.remove(ownerId)
         }
 
