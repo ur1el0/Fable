@@ -24,6 +24,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -43,6 +44,11 @@ class FableViewModelChapterLoadingTest {
             }
             advanceUntilIdle()
             assertTrue(callbackCalled)
+            assertEquals("story-1", viewModel.uiState.value.publishedStory?.id)
+            assertNull(viewModel.uiState.value.selectedStory)
+
+            viewModel.dismissPublishedStory()
+            assertNull(viewModel.uiState.value.publishedStory)
 
             repository.publishError = IllegalStateException("offline")
             callbackCalled = false
@@ -52,6 +58,7 @@ class FableViewModelChapterLoadingTest {
             advanceUntilIdle()
 
             assertFalse(callbackCalled)
+            assertNull(viewModel.uiState.value.publishedStory)
             assertEquals("offline", viewModel.uiState.value.publishErrorMessage)
         } finally {
             Dispatchers.resetMain()
