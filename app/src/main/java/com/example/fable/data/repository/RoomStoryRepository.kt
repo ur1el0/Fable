@@ -180,6 +180,7 @@ class RoomStoryRepository(
     override suspend fun publishStory(
         title: String,
         genre: String,
+        chapterTitle: String,
         synopsis: String,
         content: String
     ): Result<Story> = runCatching {
@@ -188,7 +189,7 @@ class RoomStoryRepository(
             CreateStoryRequestDto(
                 title = title.trim(),
                 genre = genre.trim(),
-                chapter = "Chapter 1",
+                chapter = chapterTitle.trim().ifBlank { "Chapter 1" },
                 synopsis = synopsis.trim(),
                 content = content.trim(),
                 readTimeMinutes = readTimeMinutes

@@ -1,38 +1,64 @@
 package com.example.fable.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ArrowDropDown
+import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.example.fable.domain.model.GenreCategory
+import com.example.fable.domain.model.WriterDraft
+import com.example.fable.ui.viewmodel.WriterDraftUiState
 
 @Composable
 fun WriteScreen(
     modifier: Modifier = Modifier,
+    expectedOwnerId: String,
+    draftState: WriterDraftUiState,
+    genres: List<GenreCategory> = emptyList(),
     isSignedIn: Boolean = true,
     isPublishing: Boolean = false,
     publishErrorMessage: String? = null,
     onSignIn: () -> Unit = {},
-    onPublish: (title: String, genre: String, synopsis: String, content: String) -> Unit = { _, _, _, _ -> }
+    onDraftChanged: (WriterDraft) -> Unit = {},
+    onDiscardDraft: () -> Unit = {},
+    onPublish: (WriterDraft) -> Unit = {}
 ) {
-    var title by rememberSaveable { mutableStateOf("") }
-    var genre by rememberSaveable { mutableStateOf("") }
-    var synopsis by rememberSaveable { mutableStateOf("") }
-    var content by rememberSaveable { mutableStateOf("") }
+    val draft = draftState.draft
+    val isDraftReady = !draftState.isLoading && draftState.ownerId == expectedOwnerId
+    val hasDraftContent = draft.title.isNotBlank() || draft.genre.isNotBlank() ||
+        draft.chapterTitle.isNotBlank() && draft.chapterTitle != "Chapter 1" ||
+        draft.synopsis.isNotBlank() || draft.content.isNotBlank()
+    val availableGenres = genres
+        .mapNotNull { it.name.trim().takeIf(String::isNotEmpty) }
+        .distinctBy(String::lowercase)
+    var showDiscardConfirmation by rememberSaveable { mutableStateOf(false) }
+    var showGenreMenu by rememberSaveable { mutableStateOf(false) }
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),
@@ -40,60 +66,185 @@ fun WriteScreen(
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item {
-            Text("CREATE", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-            Text("Write", style = MaterialTheme.typography.displaySmall)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("CREATE", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                    Text("Write", style = MaterialTheme.typography.displaySmall)
+                }
+                if (isDraftReady && hasDraftContent) {
+                    IconButton(
+                        onClick = { showDiscardConfirmation = true },
+                        enabled = !draftState.isDiscarding && !isPublishing
+                    ) {
+                        Icon(
+                            Icons.Outlined.DeleteOutline,
+                            contentDescription = "Discard draft",
+                            tint = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+            }
         }
-        item {
-            OutlinedTextField(title, { title = it.take(120) }, modifier = Modifier.fillMaxWidth(), label = { Text("Story title") }, singleLine = true)
-        }
-        item {
-            OutlinedTextField(genre, { genre = it.take(50) }, modifier = Modifier.fillMaxWidth(), label = { Text("Genre") }, singleLine = true)
-        }
-        item {
-            OutlinedTextField(
-                synopsis,
-                { synopsis = it.take(2_000) },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("Synopsis") },
-                minLines = 3,
-                supportingText = { Text("${synopsis.length} / 2,000", textAlign = TextAlign.End, modifier = Modifier.fillMaxWidth()) }
-            )
-        }
-        item {
-            OutlinedTextField(
-                content,
-                { content = it.take(50_000) },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("Opening chapter") },
-                minLines = 8,
-                supportingText = { Text("${content.trim().split(Regex("\\s+")).count { word -> word.isNotEmpty() }} words", textAlign = TextAlign.End, modifier = Modifier.fillMaxWidth()) }
-            )
-        }
-        if (!isSignedIn) {
+        if (!isDraftReady) {
+            item { Text("Restoring draft...", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        } else {
             item {
-                Text("Sign in to publish a story.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                OutlinedTextField(
+                    draft.title,
+                    { onDraftChanged(draft.copy(title = it.take(120))) },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !draftState.isDiscarding,
+                    label = { Text("Story title") },
+                    singleLine = true
+                )
             }
-        }
-        if (publishErrorMessage != null) {
             item {
-                Text(publishErrorMessage, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        draft.genre,
+                        { onDraftChanged(draft.copy(genre = it.take(50))) },
+                        modifier = Modifier.weight(1f),
+                        enabled = !draftState.isDiscarding,
+                        label = { Text("Genre") },
+                        singleLine = true
+                    )
+                    if (availableGenres.isNotEmpty()) {
+                        Box {
+                            IconButton(
+                                onClick = { showGenreMenu = true },
+                                enabled = !draftState.isDiscarding
+                            ) {
+                                Icon(
+                                    Icons.Outlined.ArrowDropDown,
+                                    contentDescription = "Choose genre"
+                                )
+                            }
+                            DropdownMenu(
+                                expanded = showGenreMenu && isDraftReady && !draftState.isDiscarding,
+                                onDismissRequest = { showGenreMenu = false }
+                            ) {
+                                availableGenres.forEach { genre ->
+                                    DropdownMenuItem(
+                                        text = { Text(genre) },
+                                        enabled = !draftState.isDiscarding,
+                                        onClick = {
+                                            onDraftChanged(draft.copy(genre = genre))
+                                            showGenreMenu = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            item {
+                OutlinedTextField(
+                    draft.chapterTitle,
+                    { onDraftChanged(draft.copy(chapterTitle = it.take(120))) },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !draftState.isDiscarding,
+                    label = { Text("Chapter title") },
+                    singleLine = true
+                )
+            }
+            item {
+                OutlinedTextField(
+                    draft.synopsis,
+                    { onDraftChanged(draft.copy(synopsis = it.take(2_000))) },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !draftState.isDiscarding,
+                    label = { Text("Synopsis") },
+                    minLines = 3,
+                    supportingText = {
+                        Text(
+                            "${draft.synopsis.length} / 2,000",
+                            textAlign = TextAlign.End,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                )
+            }
+            item {
+                OutlinedTextField(
+                    draft.content,
+                    { onDraftChanged(draft.copy(content = it.take(50_000))) },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !draftState.isDiscarding,
+                    label = { Text("Opening chapter") },
+                    minLines = 8,
+                    supportingText = {
+                        Text(
+                            "${draft.content.trim().split(Regex("\\s+")).count { word -> word.isNotEmpty() }} words",
+                            textAlign = TextAlign.End,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                )
+            }
+            item {
+                Text(
+                    when {
+                        draftState.errorMessage != null -> draftState.errorMessage
+                        draftState.isDiscarding -> "Discarding draft..."
+                        draftState.isSaving || draftState.hasUnsavedChanges -> "Saving draft..."
+                        !hasDraftContent -> "No draft saved yet."
+                        else -> "Draft saved on this device."
+                    },
+                    color = if (draftState.errorMessage != null) MaterialTheme.colorScheme.error
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            if (!isSignedIn) {
+                item {
+                    Text("Sign in to publish a story.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            if (publishErrorMessage != null) {
+                item {
+                    Text(publishErrorMessage, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            item {
+                Button(
+                    onClick = {
+                        if (isSignedIn) onPublish(draft)
+                        else onSignIn()
+                    },
+                    enabled = !isPublishing && !draftState.isDiscarding && (!isSignedIn || draft.title.isNotBlank() && draft.genre.isNotBlank() && draft.synopsis.isNotBlank() && draft.content.isNotBlank()),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(when {
+                        isPublishing -> "Publishing..."
+                        isSignedIn -> "Publish story"
+                        else -> "Sign in to publish"
+                    })
+                }
             }
         }
-        item {
-            Button(
-                onClick = {
-                    if (isSignedIn) onPublish(title.trim(), genre.trim(), synopsis.trim(), content.trim())
-                    else onSignIn()
-                },
-                enabled = !isPublishing && (!isSignedIn || title.isNotBlank() && genre.isNotBlank() && synopsis.isNotBlank() && content.isNotBlank()),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(when {
-                    isPublishing -> "Publishing..."
-                    isSignedIn -> "Publish story"
-                    else -> "Sign in to publish"
-                })
+    }
+
+    if (showDiscardConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showDiscardConfirmation = false },
+            title = { Text("Discard draft?") },
+            text = { Text("This removes the saved title, genre, chapter, synopsis, and manuscript from this device.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDiscardConfirmation = false
+                        onDiscardDraft()
+                    }
+                ) {
+                    Text("Discard", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDiscardConfirmation = false }) {
+                    Text("Cancel")
+                }
             }
-        }
+        )
     }
 }

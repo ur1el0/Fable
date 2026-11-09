@@ -1,5 +1,6 @@
 package com.example.fable.ui
 
+import android.content.Intent
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Book
@@ -11,8 +12,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
@@ -20,7 +19,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -31,12 +29,14 @@ import com.example.fable.FableApplication
 import com.example.fable.ui.screens.AccountScreen
 import com.example.fable.ui.screens.ExploreScreen
 import com.example.fable.ui.screens.LibraryScreen
+import com.example.fable.ui.screens.PublishConfirmationSheet
 import com.example.fable.ui.screens.ShelfScreen
 import com.example.fable.ui.screens.StoryDetailScreen
 import com.example.fable.ui.screens.StoryReaderScreen
 import com.example.fable.ui.screens.WriteScreen
 import com.example.fable.ui.viewmodel.FableViewModel
 import com.example.fable.ui.viewmodel.AccountViewModel
+import com.example.fable.ui.viewmodel.WriterDraftViewModel
 
 private val tabs = listOf(
     "Library" to Icons.Outlined.Book,
@@ -47,7 +47,8 @@ private val tabs = listOf(
 
 @Composable
 fun FableApp(modifier: Modifier = Modifier) {
-    val application = LocalContext.current.applicationContext as FableApplication
+    val context = LocalContext.current
+    val application = context.applicationContext as FableApplication
     val viewModel: FableViewModel = viewModel(
         factory = FableViewModel.Factory(
             application.storyRepository,
@@ -60,27 +61,27 @@ fun FableApp(modifier: Modifier = Modifier) {
         factory = AccountViewModel.Factory(application.accountRepository)
     )
     val accountState by accountViewModel.uiState.collectAsStateWithLifecycle()
+    val writerOwnerId = accountState.localAccountId?.takeIf(String::isNotBlank) ?: GUEST_OWNER_ID
+    val writerDraftViewModel: WriterDraftViewModel = viewModel(
+        factory = WriterDraftViewModel.Factory(application.writerDraftRepository, writerOwnerId)
+    )
+    val writerDraftState by writerDraftViewModel.uiState.collectAsStateWithLifecycle()
     val selectedStory = state.selectedStory
     var accountOpen by rememberSaveable { mutableStateOf(false) }
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
-    val snackbarHostState = remember { SnackbarHostState() }
 
-    LaunchedEffect(accountState.user?.id) {
-        viewModel.setShelfOwner(accountState.user?.id)
+    LaunchedEffect(accountState.localAccountId) {
+        viewModel.setShelfOwner(accountState.localAccountId)
+        writerDraftViewModel.setOwner(accountState.localAccountId)
     }
 
     LaunchedEffect(selectedTab, accountState.user?.id) {
         if (selectedTab == 3 && accountState.user != null) viewModel.refreshReadingStats()
     }
 
-    LaunchedEffect(state.publishNoticeMessage) {
-        state.publishNoticeMessage?.let { snackbarHostState.showSnackbar(it) }
-    }
-
     Scaffold(
         modifier = modifier,
         containerColor = MaterialTheme.colorScheme.background,
-        snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {
             if (selectedStory == null && !accountOpen) {
                 NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
@@ -168,11 +169,27 @@ fun FableApp(modifier: Modifier = Modifier) {
                 )
                 2 -> WriteScreen(
                     modifier = Modifier.padding(innerPadding),
+                    expectedOwnerId = writerOwnerId,
+                    draftState = writerDraftState,
+                    genres = state.genres,
                     isSignedIn = accountState.user != null,
                     isPublishing = state.isPublishing,
                     publishErrorMessage = state.publishErrorMessage,
                     onSignIn = { accountOpen = true },
-                    onPublish = viewModel::publishStory
+                    onDraftChanged = writerDraftViewModel::updateDraft,
+                    onDiscardDraft = writerDraftViewModel::discardDraft,
+                    onPublish = { draft ->
+                        viewModel.publishStory(
+                            title = draft.title,
+                            genre = draft.genre,
+                            chapterTitle = draft.chapterTitle,
+                            synopsis = draft.synopsis,
+                            content = draft.content,
+                            onPublished = {
+                                writerDraftViewModel.clearAfterPublished(writerOwnerId, draft)
+                            }
+                        )
+                    }
                 )
                 else -> ShelfScreen(
                     modifier = Modifier.padding(innerPadding),
@@ -184,5 +201,32 @@ fun FableApp(modifier: Modifier = Modifier) {
                 )
             }
         }
+
+        state.publishedStory?.let { story ->
+            PublishConfirmationSheet(
+                story = story,
+                onDismiss = viewModel::dismissPublishedStory,
+                onViewStory = {
+                    viewModel.dismissPublishedStory()
+                    viewModel.openStory(story)
+                },
+                onReturnToLibrary = {
+                    viewModel.dismissPublishedStory()
+                    selectedTab = 0
+                },
+                onShare = {
+                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(
+                            Intent.EXTRA_TEXT,
+                            "${story.title} by ${story.author}\n\n${story.synopsis}"
+                        )
+                    }
+                    context.startActivity(Intent.createChooser(shareIntent, "Share story details"))
+                }
+            )
+        }
     }
 }
+
+private const val GUEST_OWNER_ID = "guest"

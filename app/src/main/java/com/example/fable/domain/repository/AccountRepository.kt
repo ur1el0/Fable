@@ -5,6 +5,7 @@ import com.example.fable.domain.model.UserProfile
 
 interface AccountRepository {
     fun hasSession(): Boolean
+    fun currentAccountId(): String?
     suspend fun currentUser(): Result<UserProfile>
     suspend fun myStories(): Result<List<Story>>
     suspend fun signIn(email: String, password: String): Result<UserProfile>
