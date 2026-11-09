@@ -2,8 +2,6 @@ name: Android CI
 
 on:
   pull_request:
-    branches:
-      - main
   push:
     branches:
       - main
@@ -19,7 +17,7 @@ concurrency:
 jobs:
   verify:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
@@ -36,6 +34,23 @@ jobs:
 
       - name: Build debug APK and compile Android tests
         run: ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin
+
+      - name: Enable KVM permissions
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run Android instrumented tests
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 36
+          target: google_atd
+          arch: x86_64
+          profile: pixel_2
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: ./gradlew :app:connectedDebugAndroidTest
 
       - name: Build release APK
         run: ./gradlew :app:assembleRelease -PfableReleaseApiBaseUrl=https://api.example.invalid/api/v1/
