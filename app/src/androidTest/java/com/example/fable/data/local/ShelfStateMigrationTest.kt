@@ -74,6 +74,28 @@ class ShelfStateMigrationTest {
         migrated.close()
     }
 
+    @Test
+    fun createsOwnerScopedWriterDraftTable() {
+        helper.createDatabase(TEST_DATABASE, 3).close()
+
+        val migrated = helper.runMigrationsAndValidate(
+            TEST_DATABASE,
+            4,
+            true,
+            FableDatabase.MIGRATION_3_4
+        )
+        migrated.query("PRAGMA table_info(`writer_drafts`)").use { cursor ->
+            val columns = buildList {
+                while (cursor.moveToNext()) add(cursor.getString(1))
+            }
+            assertEquals(
+                listOf("ownerId", "title", "genre", "chapterTitle", "synopsis", "content"),
+                columns
+            )
+        }
+        migrated.close()
+    }
+
     private fun insertStory(
         database: androidx.sqlite.db.SupportSQLiteDatabase,
         storyId: String,
