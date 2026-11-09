@@ -18,7 +18,13 @@ interface StoryRepository {
     suspend fun refreshChapter(storyId: String, chapterNumber: Int): Result<Unit>
     suspend fun searchGutenberg(topic: String? = null, search: String? = null): Result<List<Story>>
     suspend fun searchManga(search: String? = null, limit: Int = 20, offset: Int = 0): Result<List<Story>>
-    suspend fun publishStory(title: String, genre: String, synopsis: String, content: String): Result<Story>
+    suspend fun publishStory(
+        title: String,
+        genre: String,
+        chapterTitle: String,
+        synopsis: String,
+        content: String
+    ): Result<Story>
     suspend fun setShelfOwner(ownerId: String?)
     suspend fun syncShelf(): Result<Unit>
     suspend fun syncShelfState(storyId: String): Result<Unit>

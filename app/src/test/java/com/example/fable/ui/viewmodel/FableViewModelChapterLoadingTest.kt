@@ -23,10 +23,41 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class FableViewModelChapterLoadingTest {
+    @Test
+    fun publishCallbackRunsOnlyAfterRepositorySuccess() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val repository = FakeStoryRepository(chapters = emptyList())
+            val viewModel = viewModel(repository)
+            advanceUntilIdle()
+            var callbackCalled = false
+
+            viewModel.publishStory("Title", "Fantasy", "Chapter 1", "Synopsis", "Text") {
+                callbackCalled = true
+            }
+            advanceUntilIdle()
+            assertTrue(callbackCalled)
+
+            repository.publishError = IllegalStateException("offline")
+            callbackCalled = false
+            viewModel.publishStory("Title", "Fantasy", "Chapter 1", "Synopsis", "Text") {
+                callbackCalled = true
+            }
+            advanceUntilIdle()
+
+            assertFalse(callbackCalled)
+            assertEquals("offline", viewModel.uiState.value.publishErrorMessage)
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
     @Test
     fun coalescesConcurrentRequestsForTheSameChapter() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
@@ -135,6 +166,7 @@ class FableViewModelChapterLoadingTest {
         private val observedChapters = MutableStateFlow(chapters)
         var chapterRefreshCount = 0
             private set
+        var publishError: Throwable? = null
 
         override fun observeCatalog(): Flow<List<Story>> = flowOf(emptyList())
         override fun observeShelf(): Flow<List<Story>> = flowOf(emptyList())
@@ -151,8 +183,13 @@ class FableViewModelChapterLoadingTest {
             Result.success(emptyList<Story>())
         override suspend fun searchManga(search: String?, limit: Int, offset: Int) =
             Result.success(emptyList<Story>())
-        override suspend fun publishStory(title: String, genre: String, synopsis: String, content: String) =
-            Result.success(story())
+        override suspend fun publishStory(
+            title: String,
+            genre: String,
+            chapterTitle: String,
+            synopsis: String,
+            content: String
+        ): Result<Story> = publishError?.let { Result.failure(it) } ?: Result.success(story())
         override suspend fun setShelfOwner(ownerId: String?) = Unit
         override suspend fun syncShelf() = Result.success(Unit)
         override suspend fun syncShelfState(storyId: String) = Result.success(Unit)

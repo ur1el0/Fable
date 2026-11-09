@@ -175,15 +175,23 @@ class FableViewModel(
         }
     }
 
-    fun publishStory(title: String, genre: String, synopsis: String, content: String) {
+    fun publishStory(
+        title: String,
+        genre: String,
+        chapterTitle: String,
+        synopsis: String,
+        content: String,
+        onPublished: suspend () -> Unit = {}
+    ) {
         if (mutableUiState.value.isPublishing) return
         mutableUiState.update { it.copy(isPublishing = true, publishErrorMessage = null, publishNoticeMessage = null) }
         viewModelScope.launch {
-            repository.publishStory(title, genre, synopsis, content).fold(
+            repository.publishStory(title, genre, chapterTitle, synopsis, content).fold(
                 onSuccess = { story ->
                     mutableUiState.update {
                         it.copy(isPublishing = false, publishErrorMessage = null, publishNoticeMessage = "Story published.")
                     }
+                    runCatching { onPublished() }
                     openStory(story)
                 },
                 onFailure = { error ->

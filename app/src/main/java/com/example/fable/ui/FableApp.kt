@@ -37,6 +37,7 @@ import com.example.fable.ui.screens.StoryReaderScreen
 import com.example.fable.ui.screens.WriteScreen
 import com.example.fable.ui.viewmodel.FableViewModel
 import com.example.fable.ui.viewmodel.AccountViewModel
+import com.example.fable.ui.viewmodel.WriterDraftViewModel
 
 private val tabs = listOf(
     "Library" to Icons.Outlined.Book,
@@ -60,13 +61,19 @@ fun FableApp(modifier: Modifier = Modifier) {
         factory = AccountViewModel.Factory(application.accountRepository)
     )
     val accountState by accountViewModel.uiState.collectAsStateWithLifecycle()
+    val writerOwnerId = accountState.localAccountId?.takeIf(String::isNotBlank) ?: GUEST_OWNER_ID
+    val writerDraftViewModel: WriterDraftViewModel = viewModel(
+        factory = WriterDraftViewModel.Factory(application.writerDraftRepository, writerOwnerId)
+    )
+    val writerDraftState by writerDraftViewModel.uiState.collectAsStateWithLifecycle()
     val selectedStory = state.selectedStory
     var accountOpen by rememberSaveable { mutableStateOf(false) }
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     val snackbarHostState = remember { SnackbarHostState() }
 
-    LaunchedEffect(accountState.user?.id) {
-        viewModel.setShelfOwner(accountState.user?.id)
+    LaunchedEffect(accountState.localAccountId) {
+        viewModel.setShelfOwner(accountState.localAccountId)
+        writerDraftViewModel.setOwner(accountState.localAccountId)
     }
 
     LaunchedEffect(selectedTab, accountState.user?.id) {
@@ -168,11 +175,25 @@ fun FableApp(modifier: Modifier = Modifier) {
                 )
                 2 -> WriteScreen(
                     modifier = Modifier.padding(innerPadding),
+                    expectedOwnerId = writerOwnerId,
+                    draftState = writerDraftState,
                     isSignedIn = accountState.user != null,
                     isPublishing = state.isPublishing,
                     publishErrorMessage = state.publishErrorMessage,
                     onSignIn = { accountOpen = true },
-                    onPublish = viewModel::publishStory
+                    onDraftChanged = writerDraftViewModel::updateDraft,
+                    onPublish = { draft ->
+                        viewModel.publishStory(
+                            title = draft.title,
+                            genre = draft.genre,
+                            chapterTitle = draft.chapterTitle,
+                            synopsis = draft.synopsis,
+                            content = draft.content,
+                            onPublished = {
+                                writerDraftViewModel.clearAfterPublished(writerOwnerId, draft)
+                            }
+                        )
+                    }
                 )
                 else -> ShelfScreen(
                     modifier = Modifier.padding(innerPadding),
@@ -186,3 +207,5 @@ fun FableApp(modifier: Modifier = Modifier) {
         }
     }
 }
+
+private const val GUEST_OWNER_ID = "guest"
