@@ -1,53 +1,34 @@
-# Fable - Development Phases
+# Fable Android Delivery Phases
 
-This document outlines the macro-level roadmap for the Fable project from inception to production release.
+This roadmap reflects the current shared Fable product and Android code. It has no calendar estimates. The actionable open work is listed in .agents/backlog.md.
 
----
+## Current State
 
-## Phase 1: Foundation & Data Architecture (Active)
-- Establish project architecture guidelines, agent protocols, and ADRs.
-- Configure dependency injection baseline and Gradle version catalogs (`libs.versions.toml`).
-- Implement Room Database (`FableDatabase`), Entities (`BookEntity`, `ChapterEntity`, `CategoryEntity`, `HistoryEntity`), and DAOs.
-- Implement Clean Architecture Domain models and Repository interfaces.
-- Write unit tests for Room database operations and schema migrations using in-memory SQLite.
+The app has the main product foundations and flows in code:
 
-## Phase 2: Offline Reader Core & Rendering Engine
-- Build the core Jetpack Compose Reader screen supporting edge-to-edge immersive reading.
-- Implement dual reading modes:
-  - **Paging Mode**: Horizontal chunked layout with gesture-based page flipping.
-  - **Continuous Scroll Mode**: Seamless vertical scroll physics with infinite list loading.
-- Build Reader Controls Overlay (top/bottom bars) toggled via center screen tap.
-- Build Reader Settings Bottom Sheet (font scale, line height, paragraph margin, typography font selection, themes: Light, Dark, AMOLED, Sepia).
-- Implement reading progress checkpointing and persistent scroll state.
+- Compose screens for Library, Explore, Write, Shelf, story details, the reader, and account access.
+- A shared FastAPI client for catalog and provider discovery, story/chapter retrieval, accounts, publishing, shelf sync, and reading statistics.
+- Room-backed story/chapter caching, account-scoped shelf state, reading-session outbox, and cached reading statistics.
+- On-demand chapter hydration, reader progress restoration, scroll and paginated layouts, and persistent reader preferences.
+- JVM tests, lint, debug APK assembly, and Android-test compilation pass on the current merged main.
 
-## Phase 3: Modular Source Extractors & Networking
-- Define the universal `Source` interface (`searchBooks`, `getPopularBooks`, `getChapterList`, `getChapterContent`).
-- Configure OkHttp client with custom User-Agent rotation, interceptors, and exponential-backoff rate limiting.
-- Implement HTML parsing and content extraction engine using Jsoup with strict `Safelist` sanitization.
-- Create initial reference source extractor implementation (e.g., standard web novel catalog).
-- Unit test extraction pipelines against static HTML fixtures in `src/test/resources/fixtures/`.
+This is not a release-readiness claim. Instrumentation tests have not yet been run on a connected device in the current environment.
 
-## Phase 4: Download Pipeline & Background WorkManager
-- Implement chapter download queue management in Room (`DownloadEntity`).
-- Configure AndroidX WorkManager with `DownloadWorker` running on `Dispatchers.IO`.
-- Implement Scoped Storage file management for downloaded chapter text and HTML (`context.filesDir/chapters/`).
-- Attach Android Foreground Service notification with live download progress, pause, and cancel actions.
-- Support batch downloading (e.g., "Download Next 10 Chapters", "Download All Unread").
+## Phase 1: Runtime Integration and Reliability
 
-## Phase 5: Library & Category Management
-- Build the Library screen with grid and list views for favorite books.
-- Implement category management (create, rename, reorder, assign books to categories).
-- Build Reading History screen with last-read timestamps and quick "Resume Reading" action.
-- Implement full-text local library search and sorting filters (alphabetical, last read, total chapters).
+Current phase. Validate the app against a reachable backend on an emulator or physical device. Exercise health, catalog discovery, chapter loading, sign-in, shelf synchronization, publishing, and offline reopening of cached content. Distinguish Android transport/configuration failures from backend or provider outages.
 
-## Phase 6: Settings, Theming & Performance Optimization
-- Implement Material You dynamic theming and user-selectable color palettes.
-- Profile and optimize Compose recompositions using Compose Compiler Metrics (`reportsDestination`).
-- Optimize memory footprints: Coil bitmap downsampling, memory cache limits, and garbage collection tuning.
-- Configure ProGuard/R8 rules for release APK/AAB shrinking and code obfuscation.
+Only add code when a reproducible client defect or user-visible reliability gap is confirmed.
 
-## Phase 7: Future Extensions & Ecosystem (Post-v1)
-- Optional encrypted cloud backup and multi-device reading progress synchronization.
-- External dynamic plugin system for community-contributed source extractors.
-- Support for offline local document formats (EPUB, CBZ, PDF).
+## Phase 2: Product Completion
+
+After runtime validation, compare the implemented Android user flows with the current shared product/API contract and Fable iOS behavior. Select small, user-facing gaps based on observed parity differences and user priorities. Keep any new backend behavior in the shared backend rather than reimplementing it in Android.
+
+## Phase 3: Release Readiness
+
+Validate accessibility, screen-size behavior, reader performance, offline data retention, database migrations, production API configuration, and release build handling. Record measurable results instead of adopting unverified performance targets.
+
+## Deferred
+
+Direct website extractors, scraping, plugin systems, WorkManager bulk downloads, and unrelated file-format support are not active phases. Reconsider them only through an explicit product decision and an updated architecture record.
 

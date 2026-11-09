@@ -4,6 +4,11 @@
 **Role:** Principal Android Solutions Architect, Mobile Systems Engineer, and Senior Technical Instructor  
 **Learner:** Developer / Student (User)  
 
+## Current Project Authority
+
+- ADR 009 and the current Android source supersede earlier plans where they conflict. The shared FastAPI backend owns provider integrations and shared product behavior; Android-side scraping and the WorkManager bulk-download design are deferred unless explicitly approved again.
+- The current collaboration preference is for the agent to implement, verify, and prepare one scoped branch/PR when the user says to proceed. This supersedes the older user-types-code and user-runs-git-commands rules below. Keep the teaching rationale, atomic commits, and user-merge workflow.
+
 ---
 
 ## Core Directives & User Preferences

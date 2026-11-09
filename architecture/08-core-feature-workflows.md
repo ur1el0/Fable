@@ -1,102 +1,47 @@
 # 08 Core Feature Workflows
 
-## 1. Source Browsing & Library Ingestion Workflow
+These flows describe the current Android client and shared backend boundary. Provider-specific work is performed by the shared backend, not by Android-side scrapers.
 
-This workflow coordinates discovering novels on an external web source and saving them to the user's local Room database library.
+## 1. Catalog Refresh and Local Cache
 
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User
-    participant UI as SourceCatalogScreen (Compose)
-    participant VM as CatalogViewModel
-    participant Extractor as SourceExtractor (OkHttp / Jsoup)
-    participant Repo as BookRepository
-    participant DB as Room SQLite Database
+1. The UI observes catalog and shelf data from Room.
+2. The ViewModel asks the repository to refresh the shared catalog or provider results.
+3. FableApiService makes the API request.
+4. The repository maps the response and persists it to Room.
+5. Room Flow emissions update the UI.
+6. If the request fails, existing cached stories remain available and the UI receives an error state.
 
-    User->>UI: Search novel query (e.g., "Shadow Slave")
-    UI->>VM: onSearchQuerySubmitted("Shadow Slave")
-    VM->>Extractor: searchBooks("Shadow Slave", page = 1)
-    Extractor->>Extractor: Execute OkHttp GET & parse DOM via Jsoup
-    Extractor-->>VM: Return List<Book> results
-    VM-->>UI: Render search result cards
-    
-    User->>UI: Click "Add to Library" (Favorite)
-    UI->>VM: onToggleFavorite(bookId)
-    VM->>Repo: saveBookToLibrary(book)
-    Repo->>DB: INSERT OR REPLACE INTO books (is_favorite = 1)
-    DB-->>Repo: Confirm save
-    Repo-->>VM: Flow emits updated book state
-    VM-->>UI: Update button state to "In Library"
-```
+## 2. Story and On-Demand Chapter Loading
 
----
+1. The user opens a story from discovery, the library, or the shelf.
+2. The repository loads locally cached story and chapter data.
+3. Missing metadata or chapter content is fetched through the shared API when needed.
+4. Returned chapter data is merged into Room without replacing richer cached content with metadata-only values.
+5. The reader observes the persisted chapters and requests another chapter when navigation or continuous reading requires it.
 
-## 2. Background Chapter Download Workflow
+## 3. Account-Scoped Shelf Synchronization
 
-This workflow coordinates queuing batch downloads, executing background work in WorkManager, writing files to Scoped Storage, and updating Room state.
+1. Account state supplies the current owner identifier, or the repository uses the guest scope while signed out.
+2. Bookmark, completion, and reading-position changes are written to local shelf state.
+3. When signed in and online, the repository synchronizes local changes with the shared API using the account and device identity.
+4. A failed synchronization leaves local shelf state intact for a later retry.
+5. Switching accounts changes the observed shelf scope; one owner's state must not be shown as another owner's shelf.
 
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User
-    participant UI as BookDetailScreen (Compose)
-    participant VM as BookDetailViewModel
-    participant WM as AndroidX WorkManager
-    participant Worker as DownloadWorker
-    participant Extractor as SourceExtractor
-    participant Storage as App Scoped Storage
-    participant DB as Room SQLite Database
+## 4. Reading Sessions and Statistics
 
-    User->>UI: Click "Download Next 10 Chapters"
-    UI->>VM: onDownloadChaptersRequested(count = 10)
-    VM->>WM: Enqueue OneTimeWorkRequest (UniqueWork)
-    VM->>DB: Update chapters set downloadState = 'QUEUED'
-    
-    Note over WM, Worker: WorkManager schedules worker on background thread
-    WM->>Worker: doWork()
-    Worker->>Worker: setForeground(notification with progress)
-    
-    loop For each queued chapter
-        Worker->>Extractor: getChapterContent(chapterUrl)
-        Extractor-->>Worker: Return raw HTML
-        Worker->>Worker: Sanitize HTML (Jsoup Safelist)
-        Worker->>Storage: Write to context.filesDir/chapters/{bookId}/{chapterId}.fbl
-        Worker->>DB: UPDATE chapters SET downloadState = 'DOWNLOADED'
-        Worker->>Worker: Update notification progress (e.g. 50%)
-    end
-    
-    Worker-->>WM: Result.success()
-    DB-->>UI: Flow emits updated chapter states (show downloaded badges)
-```
+1. Reader lifecycle events update local reading progress and record completed reading sessions in Room.
+2. Pending sessions are retained locally until the account is available and the API sync succeeds.
+3. The repository stores returned aggregate reading statistics locally.
+4. The Shelf screen observes cached statistics and can refresh them when appropriate.
 
----
+## 5. Account and Publishing
 
-## 3. Reading Session & Progress Checkpointing Workflow
+1. Account actions are initiated by AccountViewModel and delegated to the account repository.
+2. The repository calls the shared API and manages session state through the session store.
+3. Publishing requires an authenticated user and sends the story through the shared API.
+4. Success or failure is reflected in immutable UI state; provider and publishing logic are not implemented in the presentation layer.
 
-This workflow manages opening a chapter from local storage, rendering the text, and debouncing reading progress saves to SQLite.
+## Offline Boundary
 
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User
-    participant UI as ReaderScreen (Compose)
-    participant VM as ReaderViewModel
-    participant Storage as Scoped Storage
-    participant DB as Room SQLite Database
-
-    User->>UI: Tap book in Library
-    UI->>VM: onOpenBook(bookId)
-    VM->>DB: Query reading_history for bookId
-    DB-->>VM: Return last chapterId & scrollOffset
-    VM->>Storage: Read chapter text from .fbl file
-    Storage-->>VM: Return chapter content string
-    VM-->>UI: Render reader text & restore scroll position
-    
-    User->>UI: User scrolls through chapter
-    UI->>VM: onScrollOffsetChanged(offset)
-    Note over VM: 500ms Debounce Timer active
-    VM->>DB: UPSERT INTO reading_history (chapterId, scrollOffset, timestamp)
-    DB-->>VM: Confirm save
-```
+Previously cached stories, chapters, reader preferences, and local reading state remain available offline. Remote search, uncached content, authentication, publishing, and cross-device synchronization do not. There is no current WorkManager batch-download workflow.
 

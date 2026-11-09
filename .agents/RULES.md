@@ -2,6 +2,10 @@
 
 All agent sessions must consult and adhere to the project standards defined across these documents:
 
+## Source of Truth
+
+ADR 009 and the current Android source define the accepted shared-product architecture. Older architecture proposals and planning notes may describe direct web extractors, scraper pipelines, or WorkManager batch downloads; those are not current implementation requirements unless a newer product decision explicitly reintroduces them. Use .agents/PHASES.md and .agents/backlog.md for current planning.
+
 * **System Overview & Architecture:** `architecture/01-system-overview.md`
 * **Product Requirements Document:** `.agents/PRD.md`
 * **Engineering Phases & Roadmap:** `.agents/PHASES.md`
