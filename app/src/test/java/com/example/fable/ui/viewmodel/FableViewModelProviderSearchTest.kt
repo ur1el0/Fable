@@ -108,7 +108,13 @@ class FableViewModelProviderSearchTest {
         override suspend fun searchGutenberg(topic: String?, search: String?) = gutenbergResult
         override suspend fun searchManga(search: String?, limit: Int, offset: Int) =
             Result.success(emptyList<Story>())
-        override suspend fun publishStory(title: String, genre: String, synopsis: String, content: String) =
+        override suspend fun publishStory(
+            title: String,
+            genre: String,
+            chapterTitle: String,
+            synopsis: String,
+            content: String
+        ) =
             Result.success(story("published", title, SourceProvider.FABLE_ORIGINAL))
         override suspend fun setShelfOwner(ownerId: String?) = Unit
         override suspend fun syncShelf() = Result.success(Unit)
