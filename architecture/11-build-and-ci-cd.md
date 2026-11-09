@@ -50,41 +50,9 @@ android {
 
 ## 3. GitHub Actions Continuous Integration (CI)
 
-Every Pull Request and push to a feature branch is validated through an automated CI pipeline (`.github/workflows/ci.yml`):
+The Android CI workflow lives at `.github/workflows/ci.yml`. It runs for pull requests targeting `main`, pushes to `main`, and manual dispatches. On an Ubuntu 24.04 runner with Java 17 and Gradle dependency caching, it:
 
-```yaml
-name: Android CI Quality Gates
-
-on:
-  push:
-    branches: [ feature/*, fix/* ]
-  pull_request:
-    branches: [ main ]
-
-jobs:
-  validate:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-          cache: gradle
-
-      - name: Grant Execute Permission for Gradlew
-        run: chmod +x gradlew
-
-      - name: Run Unit Tests
-        run: ./gradlew testDebugUnitTest
-
-      - name: Run Android Lint
-        run: ./gradlew lintDebug
-
-      - name: Compile Debug APK
-        run: ./gradlew assembleDebug
-```
+- Runs `:app:testDebugUnitTest` and `:app:lintDebug`.
+- Builds the debug APK and compiles Android-test Kotlin sources. Instrumentation tests are not run because this workflow does not start an emulator.
+- Builds the release APK with a reserved HTTPS URL, so release configuration is checked without requiring a secret or contacting a live backend.
 
