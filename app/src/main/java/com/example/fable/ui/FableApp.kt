@@ -177,6 +177,7 @@ fun FableApp(modifier: Modifier = Modifier) {
                     modifier = Modifier.padding(innerPadding),
                     expectedOwnerId = writerOwnerId,
                     draftState = writerDraftState,
+                    genres = state.genres,
                     isSignedIn = accountState.user != null,
                     isPublishing = state.isPublishing,
                     publishErrorMessage = state.publishErrorMessage,
