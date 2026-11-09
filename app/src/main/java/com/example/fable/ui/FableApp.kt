@@ -182,6 +182,7 @@ fun FableApp(modifier: Modifier = Modifier) {
                     publishErrorMessage = state.publishErrorMessage,
                     onSignIn = { accountOpen = true },
                     onDraftChanged = writerDraftViewModel::updateDraft,
+                    onDiscardDraft = writerDraftViewModel::discardDraft,
                     onPublish = { draft ->
                         viewModel.publishStory(
                             title = draft.title,
