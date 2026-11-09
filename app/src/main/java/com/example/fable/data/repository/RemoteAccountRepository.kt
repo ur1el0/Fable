@@ -18,6 +18,8 @@ class RemoteAccountRepository(
 ) : AccountRepository {
     override fun hasSession(): Boolean = !sessionStore.readAccessToken().isNullOrBlank()
 
+    override fun currentAccountId(): String? = sessionStore.readAccountId()
+
     override suspend fun currentUser(): Result<UserProfile> = runCatching {
         api.fetchCurrentUser().toDomain()
     }
@@ -28,7 +30,7 @@ class RemoteAccountRepository(
 
     override suspend fun signIn(email: String, password: String): Result<UserProfile> = runCatching {
         val response = api.login(LoginRequestDto(email.trim(), password))
-        sessionStore.writeAccessToken(response.accessToken)
+        sessionStore.writeSession(response.accessToken, response.user.id)
         response.user.toDomain()
     }
 
@@ -39,7 +41,7 @@ class RemoteAccountRepository(
         handle: String
     ): Result<UserProfile> = runCatching {
         val response = api.register(RegisterRequestDto(email.trim(), password, name.trim(), handle.trim()))
-        sessionStore.writeAccessToken(response.accessToken)
+        sessionStore.writeSession(response.accessToken, response.user.id)
         response.user.toDomain()
     }
 

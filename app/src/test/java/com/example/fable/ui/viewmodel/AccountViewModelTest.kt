@@ -23,13 +23,16 @@ class AccountViewModelTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         try {
             val story = story("owned-story")
-            val viewModel = AccountViewModel(FakeAccountRepository { Result.success(listOf(story)) })
+            val viewModel = AccountViewModel(
+                FakeAccountRepository(loadStories = { Result.success(listOf(story)) })
+            )
 
             viewModel.signIn("reader@example.com", "password")
             advanceUntilIdle()
 
             assertEquals(listOf(story), viewModel.uiState.value.publishedStories)
             assertEquals(false, viewModel.uiState.value.isLoadingPublishedStories)
+            assertEquals("account-1", viewModel.uiState.value.localAccountId)
         } finally {
             Dispatchers.resetMain()
         }
@@ -40,7 +43,9 @@ class AccountViewModelTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         try {
             val pendingStories = CompletableDeferred<Result<List<Story>>>()
-            val viewModel = AccountViewModel(FakeAccountRepository { pendingStories.await() })
+            val viewModel = AccountViewModel(
+                FakeAccountRepository(loadStories = { pendingStories.await() })
+            )
 
             viewModel.signIn("reader@example.com", "password")
             runCurrent()
@@ -50,16 +55,40 @@ class AccountViewModelTest {
             advanceUntilIdle()
 
             assertNull(viewModel.uiState.value.user)
+            assertNull(viewModel.uiState.value.localAccountId)
             assertEquals(emptyList<Story>(), viewModel.uiState.value.publishedStories)
         } finally {
             Dispatchers.resetMain()
         }
     }
 
+    @Test
+    fun storedAccountIdIsAvailableBeforeProfileRefreshCompletes() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val viewModel = AccountViewModel(
+                FakeAccountRepository(
+                    loadStories = { Result.success(emptyList()) },
+                    hasStoredSession = true,
+                    storedAccountId = "account-1"
+                )
+            )
+
+            assertEquals("account-1", viewModel.uiState.value.localAccountId)
+            advanceUntilIdle()
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
     private class FakeAccountRepository(
-        private val loadStories: suspend () -> Result<List<Story>>
+        private val loadStories: suspend () -> Result<List<Story>>,
+        private val hasStoredSession: Boolean = false,
+        private val storedAccountId: String? = null
     ) : AccountRepository {
-        override fun hasSession() = false
+        override fun hasSession() = hasStoredSession
+
+        override fun currentAccountId() = storedAccountId
 
         override suspend fun currentUser() = Result.success(USER)
 
