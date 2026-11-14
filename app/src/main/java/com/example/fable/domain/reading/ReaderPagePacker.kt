@@ -26,7 +26,7 @@ object ReaderPagePacker {
         var currentWordCount = 0
 
         paragraphs.forEach { paragraph ->
-            val paragraphWordCount = paragraph.split(WORD_SEPARATOR).size
+            val paragraphWordCount = countWords(paragraph)
             if (currentWordCount + paragraphWordCount > targetWords && currentParagraphs.isNotEmpty()) {
                 pages += currentParagraphs.joinToString("\n\n")
                 currentParagraphs.clear()
@@ -40,7 +40,20 @@ object ReaderPagePacker {
         return pages
     }
 
+    private fun countWords(text: String): Int {
+        var count = 0
+        var insideWord = false
+        for (character in text) {
+            if (character.isWhitespace()) {
+                insideWord = false
+            } else if (!insideWord) {
+                count += 1
+                insideWord = true
+            }
+        }
+        return count
+    }
+
     private const val DEFAULT_WORDS_PER_PAGE = 180
     private const val MIN_WORDS_PER_PAGE = 50
-    private val WORD_SEPARATOR = Regex("\\s+")
 }

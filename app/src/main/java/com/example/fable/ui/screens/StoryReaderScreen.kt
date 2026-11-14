@@ -18,6 +18,7 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -28,6 +29,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
@@ -55,10 +57,12 @@ import com.example.fable.ui.theme.readerPalette
 import com.example.fable.ui.theme.scaledFontSize
 import com.example.fable.ui.theme.scaledLineHeight
 import com.example.fable.ui.theme.toFontFamily
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
 @Composable
@@ -198,12 +202,19 @@ private fun ReaderChapterContent(
 ) {
     val paginated = readerPreferences.layout == ReaderLayout.PAGINATED &&
         story.contentFormat != ContentFormat.MANGA
-    val pages = remember(content, readerPreferences.fontScalePercent, paginated) {
-        if (paginated) {
-            ReaderPagePacker.chunkIntoPages(content, readerPreferences.fontScalePercent)
-                .ifEmpty { listOf("This chapter is not available offline yet.") }
+    val pages by produceState<List<String>?>(
+        initialValue = if (paginated) null else emptyList(),
+        key1 = content,
+        key2 = readerPreferences.fontScalePercent,
+        key3 = paginated
+    ) {
+        if (!paginated) {
+            value = emptyList()
         } else {
-            emptyList()
+            val packedPages = withContext(Dispatchers.Default) {
+                ReaderPagePacker.chunkIntoPages(content, readerPreferences.fontScalePercent)
+            }
+            value = packedPages.ifEmpty { listOf("This chapter is not available offline yet.") }
         }
     }
     val fontFamily = readerPreferences.font.toFontFamily()
@@ -234,11 +245,18 @@ private fun ReaderChapterContent(
     }
 
     if (paginated) {
+        val readyPages = pages
+        if (readyPages == null) {
+            Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+            return
+        }
         val pagerState = rememberPagerState(
-            initialPage = ReaderProgressMapper.pageIndexForProgress(restoredChapterProgress, pages.size),
-            pageCount = { pages.size }
+            initialPage = ReaderProgressMapper.pageIndexForProgress(restoredChapterProgress, readyPages.size),
+            pageCount = { readyPages.size }
         )
-        val pagerTapModifier = modifier.pointerInput(pagerState, pages.size) {
+        val pagerTapModifier = modifier.pointerInput(pagerState, readyPages.size) {
             detectTapGestures { offset ->
                 val targetPage = when {
                     offset.x < size.width * TAP_ZONE_WIDTH_FRACTION -> pagerState.currentPage - 1
@@ -247,17 +265,17 @@ private fun ReaderChapterContent(
                 }
                 if (targetPage == null) {
                     latestOnToggleChrome()
-                } else if (targetPage in pages.indices) {
+                } else if (targetPage in readyPages.indices) {
                     pagerScope.launch { pagerState.animateScrollToPage(targetPage) }
                 }
             }
         }
-        LaunchedEffect(pagerState, chapterNumber, chapterTotal, pages.size) {
+        LaunchedEffect(pagerState, chapterNumber, chapterTotal, readyPages.size) {
             snapshotFlow { pagerState.currentPage }
                 .distinctUntilChanged()
                 .drop(1)
                 .collect { page ->
-                    val chapterProgress = (page + 1f) / pages.size
+                    val chapterProgress = (page + 1f) / readyPages.size
                     val overallProgress = (
                         ((chapterNumber - 1).coerceAtLeast(0) + chapterProgress) / chapterTotal * 100
                         ).roundToInt().coerceIn(1, 100)
@@ -278,7 +296,7 @@ private fun ReaderChapterContent(
                 verticalArrangement = Arrangement.spacedBy(18.dp)
             ) {
                 Text(
-                    "Page ${page + 1} of ${pages.size}",
+                    "Page ${page + 1} of ${readyPages.size}",
                     modifier = Modifier.fillMaxWidth(),
                     style = MaterialTheme.typography.labelMedium,
                     color = palette.foreground.copy(alpha = 0.84f),
@@ -294,7 +312,7 @@ private fun ReaderChapterContent(
                     )
                 }
                 Text(
-                    pages[page],
+                    readyPages[page],
                     fontFamily = fontFamily,
                     fontSize = readerPreferences.scaledFontSize(18f).sp,
                     lineHeight = readerPreferences.scaledLineHeight(31f, 18f).sp,
