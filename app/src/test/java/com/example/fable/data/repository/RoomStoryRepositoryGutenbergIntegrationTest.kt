@@ -6,6 +6,7 @@ import com.example.fable.data.local.StoryDao
 import com.example.fable.data.local.StoryEntity
 import com.example.fable.data.local.toEntity
 import com.example.fable.data.remote.FableApiService
+import com.example.fable.data.remote.MangaApiService
 import com.example.fable.data.remote.dto.StoryDto
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -63,8 +64,8 @@ class RoomStoryRepositoryGutenbergIntegrationTest {
                 )
             )
         )
-        val api = FableApiService(
-            baseUrl = "https://fable.test/api/v1/",
+        val mangaApi = MangaApiService(
+            baseUrl = "https://manga.test/api/v1/",
             client = OkHttpClient.Builder().addInterceptor(
                 Interceptor { chain ->
                     val request = chain.request()
@@ -87,11 +88,13 @@ class RoomStoryRepositoryGutenbergIntegrationTest {
                 }
             ).build()
         )
+        val api = FableApiService(baseUrl = "https://fable.test/api/v1/")
         val repository = RoomStoryRepository(
             api = api,
             dao = dao,
             deviceId = "device-test",
-            accessTokenProvider = { null }
+            accessTokenProvider = { null },
+            mangaApi = mangaApi
         )
 
         repository.refreshChapters(storyId).getOrThrow()

@@ -9,6 +9,8 @@ import com.example.fable.data.local.toEntity
 import com.example.fable.data.local.toShelfState
 import com.example.fable.data.local.toSyncDto
 import com.example.fable.data.remote.FableApiService
+import com.example.fable.data.remote.FableApiException
+import com.example.fable.data.remote.MangaApiService
 import com.example.fable.data.remote.dto.ChapterDto
 import com.example.fable.data.remote.dto.CreateStoryRequestDto
 import com.example.fable.data.remote.dto.ShelfSyncItemDto
@@ -38,7 +40,8 @@ class RoomStoryRepository(
     private val api: FableApiService,
     private val dao: StoryDao,
     private val deviceId: String,
-    private val accessTokenProvider: () -> String?
+    private val accessTokenProvider: () -> String?,
+    private val mangaApi: MangaApiService? = null
 ) : StoryRepository {
     private val activeShelfOwnerId = MutableStateFlow(GUEST_OWNER_ID)
     private val shelfMutationMutex = Mutex()
@@ -91,7 +94,8 @@ class RoomStoryRepository(
             provider == SourceProvider.GUTENBERG || gutenbergId != null ->
                 gutenbergId?.let { api.fetchGutenbergStory(it) } ?: api.fetchStory(storyId)
             provider == SourceProvider.MANGADEX ->
-                existing?.providerId?.let { api.fetchMangaStory(it) } ?: api.fetchStory(storyId)
+                existing?.providerId?.let { mangaApi().fetchMangaStory(it) }
+                    ?: throw FableApiException(0, "MangaDex identifier is missing from the saved story.")
             else -> api.fetchStory(storyId)
         }
         val targetStoryId = remote.id.ifBlank { storyId }
@@ -117,7 +121,8 @@ class RoomStoryRepository(
             provider == SourceProvider.GUTENBERG || gutenbergId != null ->
                 gutenbergId?.let { api.fetchGutenbergChapters(it) } ?: api.fetchChapters(storyId)
             provider == SourceProvider.MANGADEX ->
-                story?.providerId?.let { api.fetchMangaChapters(it, limit = 50) } ?: api.fetchChapters(storyId)
+                story?.providerId?.let { mangaApi().fetchMangaChapters(it, limit = 50) }
+                    ?: throw FableApiException(0, "MangaDex identifier is missing from the saved story.")
             else -> api.fetchChapters(storyId)
         }
         val chapters = mergeChapters(storyId, remoteChapters)
@@ -143,8 +148,10 @@ class RoomStoryRepository(
                 dao.replaceChapters(storyId, chapters)
                 hydrateStoryFromChapters(storyId, chapters)
             }
-            provider == SourceProvider.MANGADEX && !story?.providerId.isNullOrBlank() -> {
-                val remoteChapters = api.fetchMangaChapters(requireNotNull(story?.providerId), limit = 50)
+            provider == SourceProvider.MANGADEX -> {
+                val mangaId = story?.providerId?.takeIf(String::isNotBlank)
+                    ?: throw FableApiException(0, "MangaDex identifier is missing from the saved story.")
+                val remoteChapters = mangaApi().fetchMangaChapters(mangaId, limit = 50)
                 if (remoteChapters.none { it.chapterNumber == chapterNumber }) {
                     error("Chapter $chapterNumber is not available.")
                 }
@@ -172,7 +179,11 @@ class RoomStoryRepository(
         limit: Int,
         offset: Int
     ): Result<List<Story>> = runCatching {
-        val remote = api.fetchMangaStories(search = search, limit = limit.coerceIn(1, 50), offset = offset.coerceAtLeast(0))
+        val remote = mangaApi().fetchMangaStories(
+            search = search,
+            limit = limit.coerceIn(1, 50),
+            offset = offset.coerceAtLeast(0)
+        )
         val persisted = persistStories(remote)
         persisted.map { it.toDomain() }
     }
@@ -350,6 +361,9 @@ class RoomStoryRepository(
 
     private fun resolveGutenbergId(story: StoryEntity?, storyId: String): Int? =
         story?.providerId?.toIntOrNull() ?: gutenbergIdForStoryId(storyId)
+
+    private fun mangaApi(): MangaApiService =
+        mangaApi ?: throw FableApiException(0, "Manga API URL is not configured.")
 
     override suspend fun toggleBookmark(storyId: String): Result<Boolean> = runCatching {
         shelfMutationMutex.withLock {
