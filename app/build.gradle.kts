@@ -8,7 +8,6 @@ plugins {
 }
 
 val releaseApiBaseUrl = providers.gradleProperty("fableReleaseApiBaseUrl").orElse("")
-val releaseMangaApiBaseUrl = providers.gradleProperty("fableReleaseMangaApiBaseUrl").orElse("")
 
 android {
     namespace = "com.example.fable"
@@ -32,16 +31,10 @@ android {
                 .orElse("http://10.0.2.2:8001/api/v1/")
                 .get()
             buildConfigField("String", "FABLE_API_BASE_URL", "\"$apiBaseUrl\"")
-            val mangaApiBaseUrl = providers.gradleProperty("fableMangaApiBaseUrl")
-                .orElse("http://10.0.2.2:18002/api/v1/")
-                .get()
-            buildConfigField("String", "FABLE_MANGA_API_BASE_URL", "\"$mangaApiBaseUrl\"")
         }
         release {
             val apiBaseUrl = releaseApiBaseUrl.get()
             buildConfigField("String", "FABLE_API_BASE_URL", "\"$apiBaseUrl\"")
-            val mangaApiBaseUrl = releaseMangaApiBaseUrl.get()
-            buildConfigField("String", "FABLE_MANGA_API_BASE_URL", "\"$mangaApiBaseUrl\"")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
@@ -83,28 +76,9 @@ val validateReleaseApiBaseUrl = tasks.register("validateReleaseApiBaseUrl") {
     }
 }
 
-val validateReleaseMangaApiBaseUrl = tasks.register("validateReleaseMangaApiBaseUrl") {
-    inputs.property("fableReleaseMangaApiBaseUrl", releaseMangaApiBaseUrl)
-    doLast {
-        val configuredUrl = inputs.properties["fableReleaseMangaApiBaseUrl"] as String
-        val uri = runCatching { URI(configuredUrl.trim()) }.getOrNull()
-        val isValid = uri != null &&
-            uri.scheme.equals("https", ignoreCase = true) &&
-            !uri.host.isNullOrBlank() &&
-            uri.rawUserInfo == null &&
-            uri.rawQuery == null &&
-            uri.rawFragment == null &&
-            uri.path.endsWith("/api/v1/")
-        require(isValid) {
-            "Release builds require -PfableReleaseMangaApiBaseUrl=https://<host>/api/v1/."
-        }
-    }
-}
-
 tasks.configureEach {
     if (name == "preReleaseBuild") {
         dependsOn(validateReleaseApiBaseUrl)
-        dependsOn(validateReleaseMangaApiBaseUrl)
     }
 }
 

@@ -55,7 +55,7 @@ class FableApplication : Application() {
             baseUrl = BuildConfig.FABLE_API_BASE_URL,
             accessTokenProvider = sessionStore::readAccessToken
         )
-        mangaApiService = MangaApiService(BuildConfig.FABLE_MANGA_API_BASE_URL)
+        mangaApiService = MangaApiService(BuildConfig.FABLE_API_BASE_URL)
         storyRepository = RoomStoryRepository(
             api = apiService,
             dao = database.storyDao(),

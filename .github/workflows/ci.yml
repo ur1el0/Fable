@@ -15,26 +15,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  manga-api:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v7
-
-      - name: Set up Python 3.13
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.13"
-
-      - name: Install Manga API dependencies
-        run: python -m pip install -r requirements.txt
-        working-directory: manga-backend
-
-      - name: Run Manga API tests
-        run: python -m pytest -q
-        working-directory: manga-backend
-
   verify:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
@@ -88,4 +68,4 @@ jobs:
           script: ./gradlew :app:connectedDebugAndroidTest
 
       - name: Build release APK
-        run: ./gradlew :app:assembleRelease -PfableReleaseApiBaseUrl=https://api.example.invalid/api/v1/ -PfableReleaseMangaApiBaseUrl=https://manga.example.invalid/api/v1/
+        run: ./gradlew :app:assembleRelease -PfableReleaseApiBaseUrl=https://api.example.invalid/api/v1/
