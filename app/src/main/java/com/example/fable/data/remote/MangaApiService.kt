@@ -18,6 +18,16 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.util.concurrent.TimeUnit
 
+private val MANGADEX_UUID_PATTERN = Regex("(?i)[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}")
+private val MANGADEX_HASH_PATTERN = Regex("(?i)[0-9a-f]{32}")
+private val MANGADEX_COVER_PATTERN =
+    Regex("[A-Za-z0-9_-]{1,120}\\.jpg\\.(256|512)\\.jpg")
+private val MANGADEX_PAGE_PATTERN = Regex(
+    "[A-Za-z0-9_-]{1,180}\\.(jpg|jpeg|png|webp)",
+    RegexOption.IGNORE_CASE
+)
+private val MANGADEX_PATH_SEGMENT_PATTERN = Regex("[A-Za-z0-9._-]+")
+
 class MangaApiService(
     baseUrl: String,
     private val client: OkHttpClient = OkHttpClient.Builder()
@@ -39,43 +49,49 @@ class MangaApiService(
             addQueryParameter("limit", limit.toString())
             addQueryParameter("offset", offset.toString())
         }
-    ).map(::withProxyUrls)
+    ).map(::withValidatedImageUrls)
 
     suspend fun fetchMangaStory(mangaId: String): StoryDto =
-        withProxyUrls(get(url("public", "manga", mangaId)))
+        withValidatedImageUrls(get(url("public", "manga", mangaId)))
 
     suspend fun fetchMangaChapters(mangaId: String, limit: Int = 20): List<ChapterDto> =
         get<List<ChapterDto>>(url("public", "manga", mangaId, "chapters") {
             addQueryParameter("limit", limit.toString())
         }).map { chapter ->
-            chapter.copy(pageUrls = chapter.pageUrls.map(::resolveProxyUrl))
+            chapter.copy(pageUrls = chapter.pageUrls.map(::resolveImageUrl))
         }
 
-    private fun withProxyUrls(story: StoryDto): StoryDto = story.copy(
-        coverImageUrl = story.coverImageUrl?.let(::resolveProxyUrl),
+    private fun withValidatedImageUrls(story: StoryDto): StoryDto = story.copy(
+        coverImageUrl = story.coverImageUrl?.let(::resolveImageUrl),
         chapters = story.chapters?.map { chapter ->
-            chapter.copy(pageUrls = chapter.pageUrls.map(::resolveProxyUrl))
+            chapter.copy(pageUrls = chapter.pageUrls.map(::resolveImageUrl))
         }
     )
 
-    private fun resolveProxyUrl(path: String): String {
-        val normalizedPath = path.trimStart('/')
-        val pathOnly = normalizedPath.substringBefore('?')
-        val query = normalizedPath.substringAfter('?', missingDelimiterValue = "")
+    private fun resolveImageUrl(value: String): String {
+        val imageUrl = value.toHttpUrlOrNull()
+            ?: throw IllegalArgumentException("Manga API returned an invalid image URL.")
+        val segments = imageUrl.encodedPath.removePrefix("/").split('/')
+        val validSegments = segments.all { segment ->
+            segment.isNotBlank() && segment != "." && segment != ".." &&
+                segment.matches(MANGADEX_PATH_SEGMENT_PATTERN)
+        }
+        val trustedCover = imageUrl.host == "uploads.mangadex.org" &&
+            segments.size == 3 && segments[0] == "covers" &&
+            MANGADEX_UUID_PATTERN.matches(segments[1]) &&
+            MANGADEX_COVER_PATTERN.matches(segments[2])
+        val trustedPage = imageUrl.host.endsWith(".mangadex.network") &&
+            segments.size == 3 && segments[0] in setOf("data", "data-saver") &&
+            MANGADEX_HASH_PATTERN.matches(segments[1]) &&
+            MANGADEX_PAGE_PATTERN.matches(segments[2])
+
         require(
-            (pathOnly.startsWith("images/covers/") || pathOnly.startsWith("images/pages/")) &&
-                pathOnly.split('/').none { it.isBlank() || it == "." || it == ".." } &&
-                (query.isEmpty() || pathOnly.startsWith("images/covers/") && query in setOf("size=256", "size=512"))
-        ) { "Manga API returned an invalid image path." }
-        val base = baseUrl ?: throw FableApiException(0, "Manga API URL is not configured.")
-        val resolved = base.resolve(normalizedPath)
-            ?: throw FableApiException(0, "Manga API returned an invalid image path.")
-        require(
-            resolved.scheme == base.scheme &&
-                resolved.host == base.host &&
-                resolved.encodedPath.startsWith("${base.encodedPath}images/")
-        ) { "Manga API returned an invalid image path." }
-        return resolved.toString()
+            imageUrl.scheme == "https" && imageUrl.port == 443 &&
+                imageUrl.username.isEmpty() && imageUrl.password.isEmpty() &&
+                imageUrl.query == null && imageUrl.fragment == null && validSegments &&
+                (trustedCover || trustedPage)
+        ) { "Manga API returned an image URL outside the supported MangaDex hosts." }
+        return imageUrl.toString()
     }
 
     private fun url(vararg segments: String, query: HttpUrl.Builder.() -> Unit = {}): HttpUrl =
