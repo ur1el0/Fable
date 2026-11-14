@@ -7,6 +7,7 @@ import com.example.fable.data.local.FableDatabase
 import com.example.fable.data.local.SharedPreferencesReaderPreferencesRepository
 import com.example.fable.data.local.SecureSessionStore
 import com.example.fable.data.remote.FableApiService
+import com.example.fable.data.remote.MangaApiService
 import com.example.fable.data.repository.RemoteAccountRepository
 import com.example.fable.data.repository.RoomReadingStatsRepository
 import com.example.fable.data.repository.RoomStoryRepository
@@ -23,6 +24,8 @@ class FableApplication : Application() {
     lateinit var deviceIdentityStore: DeviceIdentityStore
         private set
     lateinit var apiService: FableApiService
+        private set
+    lateinit var mangaApiService: MangaApiService
         private set
     lateinit var storyRepository: StoryRepository
         private set
@@ -52,11 +55,13 @@ class FableApplication : Application() {
             baseUrl = BuildConfig.FABLE_API_BASE_URL,
             accessTokenProvider = sessionStore::readAccessToken
         )
+        mangaApiService = MangaApiService(BuildConfig.FABLE_MANGA_API_BASE_URL)
         storyRepository = RoomStoryRepository(
             api = apiService,
             dao = database.storyDao(),
             deviceId = deviceIdentityStore.getOrCreateDeviceId(),
-            accessTokenProvider = sessionStore::readAccessToken
+            accessTokenProvider = sessionStore::readAccessToken,
+            mangaApi = mangaApiService
         )
         accountRepository = RemoteAccountRepository(apiService, sessionStore)
         readingStatsRepository = RoomReadingStatsRepository(
