@@ -71,10 +71,15 @@ class FableApiService(
     suspend fun fetchChapter(storyId: String, chapterNumber: Int): ChapterDto =
         get(url("stories", storyId, "chapters", chapterNumber.toString()))
 
-    suspend fun fetchGutenbergStories(topic: String? = null, search: String? = null): List<StoryDto> =
+    suspend fun fetchGutenbergStories(
+        topic: String? = null,
+        search: String? = null,
+        sort: String? = null
+    ): List<StoryDto> =
         get(url("public", "gutenberg") {
             topic?.takeIf(String::isNotBlank)?.let { addQueryParameter("topic", it) }
             search?.takeIf(String::isNotBlank)?.let { addQueryParameter("search", it) }
+            sort?.takeIf(String::isNotBlank)?.let { addQueryParameter("sort", it) }
         })
 
     suspend fun fetchGutenbergStory(gutenbergId: Int): StoryDto =

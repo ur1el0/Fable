@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import com.example.fable.domain.model.ReaderFont
 import com.example.fable.domain.model.ReaderLayout
 import com.example.fable.domain.model.ReaderLineSpacing
+import com.example.fable.domain.model.MangaReadingMode
 import com.example.fable.domain.model.ReaderPreferences
 import com.example.fable.domain.model.ReaderTheme
 import com.example.fable.domain.repository.ReaderPreferencesRepository
@@ -21,7 +22,8 @@ class SharedPreferencesReaderPreferencesRepository(context: Context) : ReaderPre
             ),
             theme = preferences.readEnum(KEY_THEME, defaults.theme),
             lineSpacing = preferences.readEnum(KEY_LINE_SPACING, defaults.lineSpacing),
-            layout = preferences.readEnum(KEY_LAYOUT, defaults.layout)
+            layout = preferences.readEnum(KEY_LAYOUT, defaults.layout),
+            mangaReadingMode = preferences.readEnum(KEY_MANGA_READING_MODE, defaults.mangaReadingMode)
         )
     }
 
@@ -32,6 +34,7 @@ class SharedPreferencesReaderPreferencesRepository(context: Context) : ReaderPre
             .putString(KEY_THEME, preferences.theme.name)
             .putString(KEY_LINE_SPACING, preferences.lineSpacing.name)
             .putString(KEY_LAYOUT, preferences.layout.name)
+            .putString(KEY_MANGA_READING_MODE, preferences.mangaReadingMode.name)
             .apply()
     }
 
@@ -59,5 +62,6 @@ class SharedPreferencesReaderPreferencesRepository(context: Context) : ReaderPre
         const val KEY_THEME = "theme"
         const val KEY_LINE_SPACING = "line_spacing"
         const val KEY_LAYOUT = "layout"
+        const val KEY_MANGA_READING_MODE = "manga_reading_mode"
     }
 }

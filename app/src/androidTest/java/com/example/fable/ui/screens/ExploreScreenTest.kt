@@ -18,7 +18,7 @@ class ExploreScreenTest {
 
     @Test
     fun cachedProviderResultsShowRefreshErrorAndRetry() {
-        val searchRequests = mutableListOf<Pair<StoryCatalog, String>>()
+        val searchRequests = mutableListOf<Triple<StoryCatalog, String, String?>>()
         val cachedStory = Story(
             id = "gutenberg-11",
             title = "Alice's Adventures",
@@ -34,7 +34,9 @@ class ExploreScreenTest {
                 ExploreScreen(
                     providerStories = listOf(cachedStory),
                     providerErrorMessage = "Provider unavailable",
-                    onSearchProvider = { catalog, query -> searchRequests += catalog to query }
+                    onSearchProvider = { catalog, query, sort ->
+                        searchRequests += Triple(catalog, query, sort)
+                    }
                 )
             }
         }
@@ -48,8 +50,8 @@ class ExploreScreenTest {
 
         assertEquals(
             listOf(
-                StoryCatalog.GUTENBERG to "",
-                StoryCatalog.GUTENBERG to ""
+                Triple(StoryCatalog.GUTENBERG, "", "catalog"),
+                Triple(StoryCatalog.GUTENBERG, "", "catalog")
             ),
             searchRequests
         )

@@ -106,6 +106,12 @@ fun StoryReaderScreen(
         ?: story.content.takeIf { requestedChapter == null || chapterNumber == 1 }.orEmpty()
     val palette = readerPalette(readerPreferences.theme)
 
+    LaunchedEffect(story.id, chapterNumber, requestedChapter?.pageUrls, story.contentFormat) {
+        if (story.contentFormat == ContentFormat.MANGA && requestedChapter?.pageUrls.isNullOrEmpty()) {
+            onEnsureChapterLoaded(chapterNumber)
+        }
+    }
+
     DisposableEffect(lifecycleOwner, story.id) {
         fun endActiveSegment() {
             val elapsedSeconds = ((SystemClock.elapsedRealtime() - sessionStartedAt) / 1_000L).toInt()
@@ -131,25 +137,44 @@ fun StoryReaderScreen(
     }
 
     Box(modifier.fillMaxSize().background(palette.background)) {
-        key(story.id, if (readerPreferences.layout == ReaderLayout.PAGINATED) chapterNumber else 0) {
-            ReaderChapterContent(
-                story = story,
-                chapters = chapters,
-                chapter = requestedChapter,
-                chapterNumber = chapterNumber,
-                chapterTotal = chapterTotal,
-                content = content,
-                readerPreferences = readerPreferences,
-                palette = palette,
-                onSaveProgress = onSaveProgress,
-                listState = continuousListState,
-                onEnsureChapterLoaded = onEnsureChapterLoaded,
-                onActiveChapterChanged = { visibleChapterNumber = it },
-                onToggleChrome = { isChromeVisible = !isChromeVisible },
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(top = if (errorMessage == null) 64.dp else 104.dp, bottom = 80.dp)
-            )
+        key(
+            story.id,
+            if (story.contentFormat == ContentFormat.MANGA || readerPreferences.layout == ReaderLayout.PAGINATED) chapterNumber else 0,
+            readerPreferences.mangaReadingMode
+        ) {
+            val readerModifier = Modifier
+                .fillMaxSize()
+                .padding(top = if (errorMessage == null) 64.dp else 104.dp, bottom = 80.dp)
+            if (story.contentFormat == ContentFormat.MANGA) {
+                MangaChapterReader(
+                    story = story,
+                    chapter = requestedChapter,
+                    chapterNumber = chapterNumber,
+                    chapterTotal = chapterTotal,
+                    mode = readerPreferences.mangaReadingMode,
+                    palette = palette,
+                    onSaveProgress = onSaveProgress,
+                    onToggleChrome = { isChromeVisible = !isChromeVisible },
+                    modifier = readerModifier
+                )
+            } else {
+                ReaderChapterContent(
+                    story = story,
+                    chapters = chapters,
+                    chapter = requestedChapter,
+                    chapterNumber = chapterNumber,
+                    chapterTotal = chapterTotal,
+                    content = content,
+                    readerPreferences = readerPreferences,
+                    palette = palette,
+                    onSaveProgress = onSaveProgress,
+                    listState = continuousListState,
+                    onEnsureChapterLoaded = onEnsureChapterLoaded,
+                    onActiveChapterChanged = { visibleChapterNumber = it },
+                    onToggleChrome = { isChromeVisible = !isChromeVisible },
+                    modifier = readerModifier
+                )
+            }
         }
         ReaderControlsOverlay(
             visible = isChromeVisible,
@@ -176,6 +201,7 @@ fun StoryReaderScreen(
         ReaderDisplayOptionsSheet(
             preferences = readerPreferences,
             showLayoutOptions = story.contentFormat != ContentFormat.MANGA,
+            showMangaOptions = story.contentFormat == ContentFormat.MANGA,
             onPreferencesChanged = onReaderPreferencesChanged,
             onReset = onResetReaderPreferences,
             onDismiss = { isDisplayOptionsOpen = false }
@@ -200,8 +226,7 @@ private fun ReaderChapterContent(
     onToggleChrome: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val paginated = readerPreferences.layout == ReaderLayout.PAGINATED &&
-        story.contentFormat != ContentFormat.MANGA
+    val paginated = readerPreferences.layout == ReaderLayout.PAGINATED
     val pages by produceState<List<String>?>(
         initialValue = if (paginated) null else emptyList(),
         key1 = content,
@@ -235,9 +260,7 @@ private fun ReaderChapterContent(
         if (!paginated) return@LaunchedEffect
         val selectedChapter = chapters.firstOrNull { it.chapterNumber == chapterNumber }
         if (chapters.isNotEmpty() && selectedChapter == null) return@LaunchedEffect
-        val hasChapterBody = selectedChapter != null && (
-            selectedChapter.content.isNotBlank() || selectedChapter.pageUrls.isNotEmpty()
-            )
+        val hasChapterBody = selectedChapter?.content?.isNotBlank() == true
         val hasStoryFallback = chapterNumber == 1 && story.content.isNotBlank()
         if (!hasChapterBody && !hasStoryFallback) {
             onEnsureChapterLoaded(chapterNumber)

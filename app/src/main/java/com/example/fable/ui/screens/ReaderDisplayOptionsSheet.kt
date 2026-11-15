@@ -46,6 +46,7 @@ import com.example.fable.domain.model.ReaderLayout
 import com.example.fable.domain.model.ReaderLineSpacing
 import com.example.fable.domain.model.ReaderPreferences
 import com.example.fable.domain.model.ReaderTheme
+import com.example.fable.domain.model.MangaReadingMode
 import com.example.fable.ui.theme.FableAccent
 import com.example.fable.ui.theme.readerPalette
 import com.example.fable.ui.theme.scaledFontSize
@@ -58,6 +59,7 @@ import kotlin.math.roundToInt
 fun ReaderDisplayOptionsSheet(
     preferences: ReaderPreferences,
     showLayoutOptions: Boolean,
+    showMangaOptions: Boolean = false,
     onPreferencesChanged: (ReaderPreferences) -> Unit,
     onReset: () -> Unit,
     onDismiss: () -> Unit
@@ -106,7 +108,8 @@ fun ReaderDisplayOptionsSheet(
                 ) {
                     Text("Preview", style = MaterialTheme.typography.labelLarge)
                     Text(
-                        "The old forest whispered tales of forgotten kings and quiet dawn.",
+                        if (showMangaOptions) "Choose a vertical strip or page-by-page comic layout."
+                        else "The old forest whispered tales of forgotten kings and quiet dawn.",
                         fontFamily = draft.font.toFontFamily(),
                         fontSize = draft.scaledFontSize(15f).sp,
                         lineHeight = draft.scaledLineHeight(25f, 15f).sp
@@ -114,43 +117,45 @@ fun ReaderDisplayOptionsSheet(
                 }
             }
 
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                SettingLabel("Typography", draft.font.displayLabel())
-                Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    ReaderFont.values().forEach { font ->
-                        FilterChip(
-                            selected = draft.font == font,
-                            onClick = {
-                                draft = draft.copy(font = font)
-                                onPreferencesChanged(draft)
-                            },
-                            label = { Text(font.displayLabel(), fontFamily = font.toFontFamily()) }
-                        )
+            if (!showMangaOptions) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SettingLabel("Typography", draft.font.displayLabel())
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        ReaderFont.values().forEach { font ->
+                            FilterChip(
+                                selected = draft.font == font,
+                                onClick = {
+                                    draft = draft.copy(font = font)
+                                    onPreferencesChanged(draft)
+                                },
+                                label = { Text(font.displayLabel(), fontFamily = font.toFontFamily()) }
+                            )
+                        }
                     }
                 }
-            }
 
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                SettingLabel("Text size", "${draft.fontScalePercent}%")
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("A", style = MaterialTheme.typography.labelMedium)
-                    Slider(
-                        value = draft.fontScalePercent.toFloat(),
-                        onValueChange = { value ->
-                            draft = draft.copy(fontScalePercent = value.roundToInt())
-                        },
-                        valueRange = ReaderPreferences.MIN_FONT_SCALE_PERCENT.toFloat()..
-                            ReaderPreferences.MAX_FONT_SCALE_PERCENT.toFloat(),
-                        steps = (ReaderPreferences.MAX_FONT_SCALE_PERCENT -
-                            ReaderPreferences.MIN_FONT_SCALE_PERCENT) /
-                            ReaderPreferences.FONT_SCALE_STEP_PERCENT - 1,
-                        onValueChangeFinished = { onPreferencesChanged(draft) },
-                        modifier = Modifier.weight(1f).padding(horizontal = 12.dp)
-                    )
-                    Text("A", style = MaterialTheme.typography.titleLarge)
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    SettingLabel("Text size", "${draft.fontScalePercent}%")
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("A", style = MaterialTheme.typography.labelMedium)
+                        Slider(
+                            value = draft.fontScalePercent.toFloat(),
+                            onValueChange = { value ->
+                                draft = draft.copy(fontScalePercent = value.roundToInt())
+                            },
+                            valueRange = ReaderPreferences.MIN_FONT_SCALE_PERCENT.toFloat()..
+                                ReaderPreferences.MAX_FONT_SCALE_PERCENT.toFloat(),
+                            steps = (ReaderPreferences.MAX_FONT_SCALE_PERCENT -
+                                ReaderPreferences.MIN_FONT_SCALE_PERCENT) /
+                                ReaderPreferences.FONT_SCALE_STEP_PERCENT - 1,
+                            onValueChangeFinished = { onPreferencesChanged(draft) },
+                            modifier = Modifier.weight(1f).padding(horizontal = 12.dp)
+                        )
+                        Text("A", style = MaterialTheme.typography.titleLarge)
+                    }
                 }
             }
 
@@ -197,18 +202,20 @@ fun ReaderDisplayOptionsSheet(
                 }
             }
 
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                SettingLabel("Line spacing")
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ReaderLineSpacing.values().forEach { spacing ->
-                        FilterChip(
-                            selected = draft.lineSpacing == spacing,
-                            onClick = {
-                                draft = draft.copy(lineSpacing = spacing)
-                                onPreferencesChanged(draft)
-                            },
-                            label = { Text(spacing.displayLabel()) }
-                        )
+            if (!showMangaOptions) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SettingLabel("Line spacing")
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ReaderLineSpacing.values().forEach { spacing ->
+                            FilterChip(
+                                selected = draft.lineSpacing == spacing,
+                                onClick = {
+                                    draft = draft.copy(lineSpacing = spacing)
+                                    onPreferencesChanged(draft)
+                                },
+                                label = { Text(spacing.displayLabel()) }
+                            )
+                        }
                     }
                 }
             }
@@ -230,8 +237,32 @@ fun ReaderDisplayOptionsSheet(
                     }
                 }
             }
+
+            if (showMangaOptions) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SettingLabel("Comic reading mode", draft.mangaReadingMode.displayLabel())
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        MangaReadingMode.values().forEach { mode ->
+                            FilterChip(
+                                selected = draft.mangaReadingMode == mode,
+                                onClick = {
+                                    draft = draft.copy(mangaReadingMode = mode)
+                                    onPreferencesChanged(draft)
+                                },
+                                label = { Text(mode.displayLabel()) }
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
+}
+
+private fun MangaReadingMode.displayLabel(): String = when (this) {
+    MangaReadingMode.WEBTOON -> "Vertical"
+    MangaReadingMode.PAGE_LTR -> "Pages LTR"
+    MangaReadingMode.PAGE_RTL -> "Pages RTL"
 }
 
 @Composable

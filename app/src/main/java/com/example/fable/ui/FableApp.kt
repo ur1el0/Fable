@@ -163,7 +163,7 @@ fun FableApp(modifier: Modifier = Modifier) {
                     writers = state.writers,
                     isSearchingProvider = state.isSearchingProvider,
                     providerErrorMessage = state.providerErrorMessage,
-                    onSearchProvider = viewModel::searchProvider,
+                    onSearchProvider = { catalog, query, sort -> viewModel.searchProvider(catalog, query, sort) },
                     onStorySelected = viewModel::openStory,
                     onToggleBookmark = viewModel::toggleBookmark
                 )

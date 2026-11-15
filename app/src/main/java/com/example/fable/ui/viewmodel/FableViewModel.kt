@@ -122,7 +122,7 @@ class FableViewModel(
         }
     }
 
-    fun searchProvider(catalog: StoryCatalog, query: String) {
+    fun searchProvider(catalog: StoryCatalog, query: String, sort: String? = null) {
         providerSearchJob?.cancel()
         if (catalog == StoryCatalog.FABLE) {
             mutableUiState.update {
@@ -130,7 +130,13 @@ class FableViewModel(
             }
             return
         }
-        val cachedStories = cachedProviderStories(catalog, query)
+        val cachedStories = cachedProviderStories(catalog, query).let { stories ->
+            when (sort) {
+                "popular" -> stories.sortedByDescending { it.providerDownloadCount ?: 0 }
+                "recent" -> stories.sortedByDescending(Story::isRecentSubmission)
+                else -> stories
+            }
+        }
         mutableUiState.update {
             it.copy(providerStories = cachedStories, isSearchingProvider = true, providerErrorMessage = null)
         }
@@ -139,7 +145,10 @@ class FableViewModel(
             val normalizedQuery = query.trim().take(200).takeIf(String::isNotEmpty)
             val result = when (catalog) {
                 StoryCatalog.FABLE -> Result.success(emptyList())
-                StoryCatalog.GUTENBERG -> repository.searchGutenberg(search = normalizedQuery)
+                StoryCatalog.GUTENBERG -> repository.searchGutenberg(
+                    search = normalizedQuery,
+                    sort = sort?.takeIf { it in GUTENBERG_SORT_OPTIONS } ?: "catalog"
+                )
                 StoryCatalog.MANGA -> repository.searchManga(search = normalizedQuery)
             }
             result.fold(
@@ -419,5 +428,6 @@ class FableViewModel(
     private companion object {
         const val GUEST_OWNER_ID = "guest"
         const val MIN_READING_SESSION_SECONDS = 3
+        val GUTENBERG_SORT_OPTIONS = setOf("catalog", "popular", "recent")
     }
 }

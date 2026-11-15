@@ -168,8 +168,11 @@ class RoomStoryRepository(
         }
     }
 
-    override suspend fun searchGutenberg(topic: String?, search: String?): Result<List<Story>> = runCatching {
-        val remote = api.fetchGutenbergStories(topic = topic, search = search)
+    override suspend fun searchGutenberg(topic: String?, search: String?): Result<List<Story>> =
+        searchGutenberg(topic, search, null)
+
+    override suspend fun searchGutenberg(topic: String?, search: String?, sort: String?): Result<List<Story>> = runCatching {
+        val remote = api.fetchGutenbergStories(topic = topic, search = search, sort = sort)
         val persisted = persistStories(remote)
         persisted.map { it.toDomain() }
     }
