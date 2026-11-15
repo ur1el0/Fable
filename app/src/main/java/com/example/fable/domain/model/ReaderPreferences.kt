@@ -5,7 +5,8 @@ data class ReaderPreferences(
     val fontScalePercent: Int = 100,
     val theme: ReaderTheme = ReaderTheme.SEPIA,
     val lineSpacing: ReaderLineSpacing = ReaderLineSpacing.NORMAL,
-    val layout: ReaderLayout = ReaderLayout.SCROLL
+    val layout: ReaderLayout = ReaderLayout.SCROLL,
+    val mangaReadingMode: MangaReadingMode = MangaReadingMode.WEBTOON
 ) {
     init {
         require(fontScalePercent in MIN_FONT_SCALE_PERCENT..MAX_FONT_SCALE_PERCENT)
@@ -44,4 +45,10 @@ enum class ReaderLineSpacing {
 enum class ReaderLayout {
     SCROLL,
     PAGINATED
+}
+
+enum class MangaReadingMode {
+    WEBTOON,
+    PAGE_LTR,
+    PAGE_RTL
 }
