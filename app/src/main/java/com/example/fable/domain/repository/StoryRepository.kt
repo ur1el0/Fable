@@ -17,6 +17,11 @@ interface StoryRepository {
     suspend fun refreshChapters(storyId: String): Result<Unit>
     suspend fun refreshChapter(storyId: String, chapterNumber: Int): Result<Unit>
     suspend fun searchGutenberg(topic: String? = null, search: String? = null): Result<List<Story>>
+    suspend fun searchGutenberg(
+        topic: String? = null,
+        search: String? = null,
+        sort: String?
+    ): Result<List<Story>> = searchGutenberg(topic, search)
     suspend fun searchManga(search: String? = null, limit: Int = 20, offset: Int = 0): Result<List<Story>>
     suspend fun publishStory(
         title: String,
