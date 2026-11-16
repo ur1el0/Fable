@@ -93,6 +93,8 @@ class FableViewModel(
             var firstError: Throwable? = null
 
             repository.refreshStories().onFailure { firstError = it }
+            repository.searchGutenberg(topic = "fiction").onFailure { if (firstError == null) firstError = it }
+            repository.searchStandardEbooks(topic = "fiction").onFailure { if (firstError == null) firstError = it }
             runCatching { repository.fetchGenres() }
                 .onSuccess { genres -> mutableUiState.update { it.copy(genres = genres) } }
                 .onFailure { if (firstError == null) firstError = it }
@@ -140,6 +142,7 @@ class FableViewModel(
             val result = when (catalog) {
                 StoryCatalog.FABLE -> Result.success(emptyList())
                 StoryCatalog.GUTENBERG -> repository.searchGutenberg(search = normalizedQuery)
+                StoryCatalog.STANDARD_EBOOKS -> repository.searchStandardEbooks(search = normalizedQuery)
                 StoryCatalog.MANGA -> repository.searchManga(search = normalizedQuery)
             }
             result.fold(
@@ -165,6 +168,7 @@ class FableViewModel(
         val provider = when (catalog) {
             StoryCatalog.FABLE -> return emptyList()
             StoryCatalog.GUTENBERG -> SourceProvider.GUTENBERG
+            StoryCatalog.STANDARD_EBOOKS -> SourceProvider.STANDARD_EBOOKS
             StoryCatalog.MANGA -> SourceProvider.MANGADEX
         }
         val normalizedQuery = query.trim().take(200)

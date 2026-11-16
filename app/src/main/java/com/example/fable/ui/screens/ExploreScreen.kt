@@ -110,6 +110,7 @@ fun ExploreScreen(
                                 when (catalog) {
                                     StoryCatalog.FABLE -> "Fable"
                                     StoryCatalog.GUTENBERG -> "Gutenberg"
+                                    StoryCatalog.STANDARD_EBOOKS -> "Standard Ebooks"
                                     StoryCatalog.MANGA -> "MangaDex"
                                 }
                             )
@@ -175,6 +176,7 @@ fun ExploreScreen(
                 when {
                     query.isNotBlank() -> "Search results"
                     selectedCatalog == StoryCatalog.GUTENBERG -> "Project Gutenberg"
+                    selectedCatalog == StoryCatalog.STANDARD_EBOOKS -> "Standard Ebooks"
                     selectedCatalog == StoryCatalog.MANGA -> "Manga"
                     else -> "Stories"
                 }
@@ -208,7 +210,14 @@ fun ExploreScreen(
                 EmptyState(
                     title = if (query.isBlank()) "No stories to explore" else "No matches",
                     message = when {
-                        isSearchingProvider -> "Searching ${selectedCatalog.name.lowercase().replaceFirstChar(Char::uppercase)}"
+                        isSearchingProvider -> "Searching ${
+                            when (selectedCatalog) {
+                                StoryCatalog.FABLE -> "Fable"
+                                StoryCatalog.GUTENBERG -> "Project Gutenberg"
+                                StoryCatalog.STANDARD_EBOOKS -> "Standard Ebooks"
+                                StoryCatalog.MANGA -> "MangaDex"
+                            }
+                        }"
                         providerErrorMessage != null && selectedCatalog != StoryCatalog.FABLE -> providerErrorMessage
                         query.isBlank() -> "The catalog will appear here when it is available."
                         else -> "Try a different title, author, or genre."

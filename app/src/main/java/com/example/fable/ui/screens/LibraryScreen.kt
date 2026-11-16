@@ -182,7 +182,12 @@ private fun FeaturedStory(story: Story, onClick: () -> Unit, onBookmark: () -> U
                     shape = RoundedCornerShape(6.dp)
                 ) {
                     Text(
-                        story.badgeText ?: if (story.isTaleOfTheDay) "TALE OF THE DAY" else "EDITOR'S PICK",
+                        story.badgeText ?: when {
+                            story.isTaleOfTheDay -> "TALE OF THE DAY"
+                            story.sourceProvider != com.example.fable.domain.model.SourceProvider.FABLE_ORIGINAL ->
+                                story.sourceProvider.displayName.uppercase()
+                            else -> "EDITOR'S PICK"
+                        },
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onTertiaryContainer,
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)

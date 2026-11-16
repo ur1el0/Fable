@@ -131,7 +131,11 @@ fun StoryRow(
                 )
                 Text(story.author, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(
-                    "${story.genre}  ·  ${story.readTimeMinutes.coerceAtLeast(1)} min",
+                    listOfNotNull(
+                        story.sourceProvider.displayName,
+                        story.genre.takeIf(String::isNotBlank),
+                        "${story.readTimeMinutes.coerceAtLeast(1)} min"
+                    ).joinToString("  ·  "),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
