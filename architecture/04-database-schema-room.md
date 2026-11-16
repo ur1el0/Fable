@@ -1,127 +1,158 @@
 # 04 Database Schema & Persistence (Room SQLite)
 
-## Current Android Schema
+## Current Android Schema (Version 3)
 
-The current implementation uses two tables. `stories` caches backend catalog metadata and keeps device-owned bookmark, completion, page progress, and last-chapter state. `chapters` caches prose or manga chapter content and references `stories.id` with cascade deletion.
+Fable Android uses **AndroidX Room** over an embedded **SQLite** database as the single source of truth for the client. The database resides at Schema Version 3 across 5 normalized tables:
+- `stories`: Caches catalog and discovered metadata across all source providers (`FABLE_ORIGINAL`, `GUTENBERG`, `STANDARD_EBOOKS`, `MANGADEX`).
+- `chapters`: Stores individual chapter text, word counts, and manga image page URLs, with a foreign-key cascade link to `stories.id`.
+- `shelf_states`: Stores account-scoped shelf state (bookmarks, completion flags, reading progress percentage, current page, and last-read chapter pointers) partitioned by `(ownerId, storyId)`.
+- `reading_sessions`: Outbox of recorded reading durations (seconds read, timestamp, completion) pending synchronization with the backend.
+- `reading_stats`: Caches account-scoped aggregate reading analytics (stories read count, total minutes read, consecutive day streak).
 
-The Room schema is versioned and exported to `app/schemas/`. `StoryDao` exposes catalog, shelf, story, and chapter data as `Flow`; remote refreshes update cached content while retaining local reading state. Chapter replacement runs in a transaction so readers never observe a partially refreshed chapter list.
-
-The tables below describe the original generic-reader plan and are not implemented in schema version 1.
-
-## 1. RDBMS Strategy: Room Persistence Library
-
-Fable uses **AndroidX Room** over an embedded **SQLite** engine as the single source of truth for the entire application. Room provides compile-time query verification via KSP, robust reactive `Flow` observation, and transactional integrity.
+The schema is versioned, exported via KSP to `app/schemas/`, and backed by verified automated migrations (`MIGRATION_1_2` and `MIGRATION_2_3`).
 
 ---
 
-## 2. Table Schemas & Room Entities
+## 1. Table Schemas & Room Entities
 
-### 2.1 Table: `books` (`BookEntity`)
-Stores metadata and user library flags for all tracked novels and books.
+### 1.1 Table: `stories` (`StoryEntity`)
+Stores catalog metadata, cover URLs, editorial badges, and source provider identity.
 
 | Column | Data Type | Constraints | Description |
 | :--- | :--- | :--- | :--- |
-| `id` | `TEXT` | PRIMARY KEY, NOT NULL | Unique composite ID (e.g., `"${sourceId}_${slug}"`) |
-| `title` | `TEXT` | NOT NULL | Title of the work |
-| `author` | `TEXT` | NOT NULL | Author or creator name |
-| `cover_url` | `TEXT` | NULL | Remote or cached URL for the cover illustration |
-| `description` | `TEXT` | NULL | Synopsis or blurb |
-| `source_id` | `TEXT` | NOT NULL | Identifier of the source extractor origin |
-| `is_favorite` | `INTEGER` | NOT NULL, DEFAULT 0 | Library bookmark flag (1 = in library, 0 = browsing cache) |
-| `total_chapters`| `INTEGER` | NOT NULL, DEFAULT 0 | Count of discovered chapters |
-| `created_at` | `INTEGER` | NOT NULL | Timestamp when book was first saved |
-| `last_read_at` | `INTEGER` | NULL | Timestamp when book was last opened |
+| `id` | `TEXT` | PRIMARY KEY, NOT NULL | Unique composite or UUIDv5 identifier (e.g. `gutenberg:123`, `standard-ebooks:slug`) |
+| `title` | `TEXT` | NOT NULL | Title of the literary work |
+| `author` | `TEXT` | NOT NULL | Author or creator attribution |
+| `genre` | `TEXT` | NOT NULL | Genre category string |
+| `chapter` | `TEXT` | NOT NULL | Formatted chapter subtitle / tag |
+| `synopsis` | `TEXT` | NOT NULL | Narrative summary or blurb |
+| `content` | `TEXT` | NOT NULL | Embedded text or introductory body |
+| `readTimeMinutes` | `INTEGER`| NOT NULL | Calculated reading duration |
+| `createdAtUtc` | `TEXT` | NOT NULL | ISO-8601 creation timestamp |
+| `updatedAtUtc` | `TEXT` | NOT NULL | ISO-8601 update timestamp |
+| `coverImageName` | `TEXT` | NULL | Local bundled cover asset name |
+| `heroImageName` | `TEXT` | NULL | Local bundled hero banner name |
+| `coverImageUrl` | `TEXT` | NULL | Remote HTTP cover image URL |
+| `totalPages` | `INTEGER`| NOT NULL | Calculated pagination page count |
+| `currentPage` | `INTEGER`| NOT NULL | Local device fallback page index |
+| `progressPercent` | `INTEGER`| NOT NULL | Local device fallback progress percentage (0-100) |
+| `rating` | `REAL` | NULL | Aggregate editorial rating |
+| `savesCount` | `TEXT` | NOT NULL | Human-readable saves count |
+| `readsCount` | `TEXT` | NOT NULL | Human-readable reads count |
+| `isTaleOfTheDay` | `INTEGER`| NOT NULL | Featured daily story flag |
+| `isRecentSubmission`|`INTEGER`| NOT NULL | Community submission badge flag |
+| `isCuratorSpotlight`|`INTEGER`| NOT NULL | Editorial curator spotlight flag |
+| `badgeText` | `TEXT` | NULL | Custom promotional chip badge |
+| `totalChapters` | `INTEGER`| NOT NULL | Discovered chapter count |
+| `contentFormat` | `TEXT` | NOT NULL | Format discriminator (`prose`, `manga`) |
+| `sourceProvider` | `TEXT` | NOT NULL | Provenance provider (`FABLE_ORIGINAL`, `GUTENBERG`, `STANDARD_EBOOKS`, `MANGADEX`) |
+| `providerId` | `TEXT` | NULL | Upstream provider identifier (e.g. Gutenberg ID, Standard Ebooks slug) |
+| `providerDownloadCount`|`INTEGER`| NULL | Upstream download popularity count |
+| `isBookmarked` | `INTEGER`| NOT NULL | Device fallback bookmark flag |
+| `isCompleted` | `INTEGER`| NOT NULL | Device fallback completion flag |
+| `lastReadChapterId`|`TEXT` | NULL | Pointer to active reading chapter |
+| `lastReadChapterNumber`|`INTEGER`| NULL | Ordinal of active reading chapter |
+| `shelfUpdatedAtUtc`|`TEXT` | NOT NULL | ISO-8601 timestamp of shelf modification |
 
 **Indices:**
-- `CREATE INDEX index_books_source_id ON books(source_id);`
-- `CREATE INDEX index_books_is_favorite ON books(is_favorite);`
-- `CREATE INDEX index_books_last_read_at ON books(last_read_at);`
+- `CREATE INDEX index_stories_genre ON stories(genre);`
+- `CREATE INDEX index_stories_shelfUpdatedAtUtc ON stories(shelfUpdatedAtUtc);`
 
 ---
 
-### 2.2 Table: `chapters` (`ChapterEntity`)
-Stores individual chapter metadata and read/download states.
+### 1.2 Table: `chapters` (`ChapterEntity`)
+Stores chapter content, word metrics, and panel image lists.
 
 | Column | Data Type | Constraints | Description |
 | :--- | :--- | :--- | :--- |
-| `id` | `TEXT` | PRIMARY KEY, NOT NULL | Unique chapter ID (e.g., `"${bookId}_ch_${num}"`) |
-| `book_id` | `TEXT` | NOT NULL, FK (`books.id`), ON DELETE CASCADE | Associated book reference |
-| `title` | `TEXT` | NOT NULL | Chapter display title |
-| `chapter_number`| `REAL` | NOT NULL | Numeric sequence ordering (supports floats like 10.5) |
-| `url` | `TEXT` | NOT NULL | Source URL for web content extraction |
-| `is_read` | `INTEGER` | NOT NULL, DEFAULT 0 | Completion flag (1 = completed) |
-| `download_state`| `TEXT` | NOT NULL, DEFAULT 'NOT_DOWNLOADED' | `'NOT_DOWNLOADED'`, `'QUEUED'`, `'DOWNLOADING'`, `'DOWNLOADED'` |
-| `release_date` | `INTEGER` | NULL | Publication timestamp |
+| `id` | `TEXT` | PRIMARY KEY, NOT NULL | Unique chapter ID (e.g. `gutenberg:123:ch:1`) |
+| `storyId` | `TEXT` | NOT NULL, FK (`stories.id`), CASCADE | Parent story reference |
+| `chapterNumber` | `INTEGER`| NOT NULL | 1-based sequential chapter ordinal |
+| `title` | `TEXT` | NOT NULL | Chapter heading title |
+| `content` | `TEXT` | NOT NULL | Sanitized chapter body text |
+| `wordCount` | `INTEGER`| NOT NULL | Pre-calculated word count |
+| `createdAtUtc` | `TEXT` | NOT NULL | Ingestion timestamp |
+| `pageUrls` | `TEXT` | NOT NULL | JSON-encoded array of panel image URLs |
 
 **Indices & Foreign Keys:**
-```kotlin
-@Entity(
-    tableName = "chapters",
-    foreignKeys = [
-        ForeignKey(
-            entity = BookEntity::class,
-            parentColumns = ["id"],
-            childColumns = ["book_id"],
-            onDelete = ForeignKey.CASCADE
-        )
-    ],
-    indices = [
-        Index(value = ["book_id"]),
-        Index(value = ["chapter_number"])
-    ]
-)
-```
+- `FOREIGN KEY (storyId) REFERENCES stories(id) ON DELETE CASCADE`
+- `CREATE INDEX index_chapters_storyId ON chapters(storyId);`
+- `CREATE UNIQUE INDEX index_chapters_storyId_chapterNumber ON chapters(storyId, chapterNumber);`
 
 ---
 
-### 2.3 Table: `categories` (`CategoryEntity`) & `book_categories` (`BookCategoryCrossRef`)
-Supports user-defined library categories (e.g., "Currently Reading", "Plan to Read").
-
-- **`categories` Table:**
-  - `id`: `INTEGER PRIMARY KEY AUTOINCREMENT`
-  - `name`: `TEXT NOT NULL UNIQUE`
-  - `sort_order`: `INTEGER NOT NULL DEFAULT 0`
-- **`book_categories` (Cross-Reference Table):**
-  - `book_id`: `TEXT NOT NULL, FK(books.id) ON DELETE CASCADE`
-  - `category_id`: `INTEGER NOT NULL, FK(categories.id) ON DELETE CASCADE`
-  - `PRIMARY KEY (book_id, category_id)`
-
----
-
-### 2.4 Table: `reading_history` (`HistoryEntity`)
-Tracks exact checkpoint progress within a book.
+### 1.3 Table: `shelf_states` (`ShelfStateEntity`)
+Enforces multi-tenant account isolation. Shelves for `guest` and authenticated users are partitioned by `ownerId`.
 
 | Column | Data Type | Constraints | Description |
 | :--- | :--- | :--- | :--- |
-| `book_id` | `TEXT` | PRIMARY KEY, FK (`books.id`), ON DELETE CASCADE | Associated book |
-| `chapter_id` | `TEXT` | NOT NULL | Active chapter ID |
-| `page_index` | `INTEGER` | NOT NULL, DEFAULT 0 | Page index in Paging Mode |
-| `scroll_offset` | `INTEGER` | NOT NULL, DEFAULT 0 | Exact pixel scroll offset in Continuous Scroll Mode |
-| `last_read_time`| `INTEGER` | NOT NULL | Checkpoint update timestamp |
+| `ownerId` | `TEXT` | PRIMARY KEY (1/2), NOT NULL | Account user ID or `"guest"` |
+| `storyId` | `TEXT` | PRIMARY KEY (2/2), NOT NULL | Story identifier reference |
+| `isBookmarked` | `INTEGER`| NOT NULL | Bookmark flag (1 = saved) |
+| `isCompleted` | `INTEGER`| NOT NULL | Finished flag (1 = completed) |
+| `progressPercent`| `INTEGER`| NOT NULL | Reading progress percentage (0-100) |
+| `currentPage` | `INTEGER`| NOT NULL | Last active page index |
+| `lastReadChapterId`|`TEXT` | NULL | Last active chapter ID |
+| `lastReadChapterNumber`|`INTEGER`| NULL | Last active chapter ordinal |
+| `updatedAtUtc` | `TEXT` | NOT NULL | ISO-8601 timestamp of shelf change |
+
+**Indices:**
+- `CREATE INDEX index_shelf_states_storyId ON shelf_states(storyId);`
+- `CREATE INDEX index_shelf_states_ownerId_updatedAtUtc ON shelf_states(ownerId, updatedAtUtc);`
 
 ---
 
-### 2.5 Table: `downloads` (`DownloadEntity`)
-Manages the active chapter download queue.
+### 1.4 Table: `reading_sessions` (`ReadingSessionEntity`)
+Locally records completed reading sessions and serves as an offline sync outbox.
 
 | Column | Data Type | Constraints | Description |
 | :--- | :--- | :--- | :--- |
-| `chapter_id` | `TEXT` | PRIMARY KEY, FK (`chapters.id`), ON DELETE CASCADE | Target chapter |
-| `book_id` | `TEXT` | NOT NULL | Associated book ID |
-| `status` | `TEXT` | NOT NULL | `'QUEUED'`, `'DOWNLOADING'`, `'COMPLETED'`, `'FAILED'` |
-| `progress` | `INTEGER` | NOT NULL, DEFAULT 0 | Percentage progress (0-100) |
-| `file_path` | `TEXT` | NULL | Relative path within internal storage sandbox |
-| `queued_at` | `INTEGER` | NOT NULL | Queue entry timestamp |
+| `ownerId` | `TEXT` | PRIMARY KEY (1/2), NOT NULL | Account user ID or `"guest"` |
+| `id` | `TEXT` | PRIMARY KEY (2/2), NOT NULL | Unique session UUID |
+| `storyId` | `TEXT` | NOT NULL | Target story ID |
+| `secondsRead` | `INTEGER`| NOT NULL | Duration spent reading in seconds |
+| `readAtUtc` | `TEXT` | NOT NULL | ISO-8601 session timestamp |
+| `isCompleted` | `INTEGER`| NOT NULL | Whether session marked story complete |
+
+**Indices:**
+- `CREATE INDEX index_reading_sessions_ownerId_readAtUtc ON reading_sessions(ownerId, readAtUtc);`
 
 ---
 
-## 3. Schema Migrations & KSP Export
+### 1.5 Table: `reading_stats` (`ReadingStatsEntity`)
+Stores cached aggregate reading metrics per user account.
 
-Room is configured to export schema definitions to `app/schemas/`:
+| Column | Data Type | Constraints | Description |
+| :--- | :--- | :--- | :--- |
+| `ownerId` | `TEXT` | PRIMARY KEY, NOT NULL | Account user ID or `"guest"` |
+| `storiesReadCount`|`INTEGER`| NOT NULL | Total count of completed stories |
+| `totalMinutesRead`|`INTEGER`| NOT NULL | Cumulative minutes spent reading |
+| `streakDays` | `INTEGER`| NOT NULL | Current daily reading streak |
+| `updatedAtUtc` | `TEXT` | NOT NULL | Timestamp of last sync |
+
+---
+
+## 2. SQLite Migration History
+
+### Migration 1 → 2 (`MIGRATION_1_2`)
+- Creates table `shelf_states` with composite primary key `(ownerId, storyId)`.
+- Creates indices on `storyId` and `(ownerId, updatedAtUtc)`.
+- Safely migrates existing shelf data from `stories` into `shelf_states` under default `ownerId = 'guest'`.
+
+### Migration 2 → 3 (`MIGRATION_2_3`)
+- Creates table `reading_sessions` with composite primary key `(ownerId, id)`.
+- Creates index on `(ownerId, readAtUtc)`.
+- Creates table `reading_stats` with primary key `ownerId`.
+
+---
+
+## 3. Room Schema Export & Verification
+
+Room exports JSON schema contracts to `app/schemas/com.example.fable.data.local.FableDatabase/`:
 ```kotlin
 ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
 }
 ```
-All entity modifications require an explicit `Migration(from, to)` implementation verifying SQLite table alterations before shipping production updates.
+All DAO Flow queries execute asynchronously on Room's background dispatcher, ensuring zero Main thread disk stalls during active reader scrolling.
 
