@@ -1,95 +1,95 @@
-# 05 Networking & Source Extractor Pipeline
+# 05 Networking & Federated API Pipeline
 
-## Current Product API
+## 1. Product API Architecture (ADR 009 Authority)
 
-The Android client mirrors the contracts served by the Fable-IOS FastAPI backend. Catalog and provider responses are treated as remote content; the Android Room database remains authoritative for the user's saved stories, reading progress, and cached chapters.
+Fable Android communicates with the shared FastAPI backend using a contract-first architecture implemented via `FableApiService`, backed by an optimized `OkHttpClient` and `kotlinx.serialization`.
 
-The first API group covers `GET /api/v1/stories`, `GET /api/v1/stories/{storyId}`, chapter lists and individual chapters, `GET /api/v1/genres`, `GET /api/v1/authors/top`, and `GET /api/v1/updates`. Provider catalogs, account actions, story publishing, and shelf synchronization are added as separate implementation milestones.
+The Android client does not scrape external websites directly. All catalog search, public-domain prose federation, chapter parsing, user authentication, publishing, and shelf synchronization are coordinated through the shared REST API. Room remains the single source of truth locally for cached metadata, hydrated chapters, and reading state.
 
-The app's shared domain model is `Story`, with `ContentFormat` distinguishing prose from manga and `SourceProvider` identifying the catalog provider. Android DTOs mirror the backend's camel-case JSON aliases and ignore additional response properties so compatible backend additions do not break the client.
-
-The older extractor contract below remains a possible future extension for direct website sources. It is not the current path for Fable's curated catalog, Gutenberg, or MangaDex content; those sources are reached through the shared backend.
-
-## 1. Modular Source Extractor Architecture
-
-Fable decouples external web content ingestion from the core application using a modular extractor interface. Every website scraper implements the unified `Source` contract:
-
-```kotlin
-interface Source {
-    val id: String
-    val name: String
-    val baseUrl: String
-    val iconUrl: String?
-
-    suspend fun getPopularBooks(page: Int): List<Book>
-    suspend fun searchBooks(query: String, page: Int): List<Book>
-    suspend fun getBookDetails(bookUrl: String): Book
-    suspend fun getChapterList(bookUrl: String): List<Chapter>
-    suspend fun getChapterContent(chapterUrl: String): String
-}
 ```
-
-By isolating CSS selectors and URL query construction inside discrete extractor classes, external website redesigns or DOM changes can be repaired without touching the UI, Room database, or reader rendering code.
+┌────────────────────────────────────────────────────────┐
+│                   Fable Android UI                     │
+│          (ExploreScreen / LibraryScreen / Reader)      │
+└───────────────────────────┬────────────────────────────┘
+                            │ Room Flow / Repository Call
+                            ▼
+┌────────────────────────────────────────────────────────┐
+│                 RoomStoryRepository                    │
+│   - Queries Room first (Cache-First Read)              │
+│   - Dispatches remote fetches to FableApiService       │
+│   - Merges responses into Room atomically              │
+└───────────────────────────┬────────────────────────────┘
+                            │ Asynchronous HTTP Requests
+                            ▼
+┌────────────────────────────────────────────────────────┐
+│                   FableApiService                      │
+│        (OkHttpClient + kotlinx.serialization)          │
+└───────────────────────────┬────────────────────────────┘
+                            │ REST / JSON (camelCase aliases)
+                            ▼
+┌────────────────────────────────────────────────────────┐
+│                Shared FastAPI Backend                  │
+│  ├─ /api/v1/stories (Curated Catalog & Publishing)     │
+│  ├─ /api/v1/public/gutenberg (Project Gutenberg)       │
+│  ├─ /api/v1/public/standard-ebooks (Standard Ebooks)   │
+│  ├─ /api/v1/shelf/sync (Multi-Tenant Shelf Sync)       │
+│  └─ /api/v1/auth/* (Accounts & Reading Stats)          │
+└────────────────────────────────────────────────────────┘
+```
 
 ---
 
-## 2. OkHttp Networking Pipeline
+## 2. Shared API Endpoint Groups
 
-All network communication routes through a centralized, optimized OkHttp client:
+### 2.1 Curated Literature & Catalog Discovery
+- `GET /api/v1/stories?genre={genre}&search={query}&contentFormat={format}`: Fetches curated catalog stories.
+- `GET /api/v1/stories/{storyId}`: Story metadata and chapter list.
+- `GET /api/v1/stories/{storyId}/chapters/{chapterId}`: Detailed chapter content.
+- `GET /api/v1/genres`: Discovered category list.
+- `GET /api/v1/authors/top`: Featured catalog and community authors.
+- `GET /api/v1/updates`: Real-time catalog change timestamps.
 
-```kotlin
-class NetworkClient {
-    val okHttpClient: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
-        .writeTimeout(15, TimeUnit.SECONDS)
-        .addInterceptor { chain ->
-            val request = chain.request().newBuilder()
-                .header("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36")
-                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-                .header("Accept-Language", "en-US,en;q=0.9")
-                .build()
-            chain.proceed(request)
-        }
-        .build()
-}
-```
+### 2.2 Federated Public-Domain Literature Providers
+- **Project Gutenberg:**
+  - `GET /api/v1/public/gutenberg?topic={topic}&search={search}`: Catalog search and topic discovery.
+  - `GET /api/v1/public/gutenberg/{id}/chapters`: On-demand plain-text source parsing and chapter hydration.
+- **Standard Ebooks:**
+  - `GET /api/v1/public/standard-ebooks?topic={topic}&search={search}`: Typography-first public domain catalog.
+  - `GET /api/v1/public/standard-ebooks/story?book_id={slug}`: Resolves metadata for a single work by slug.
+  - `GET /api/v1/public/standard-ebooks/chapters?book_id={slug}`: Semantic XHTML chapter extraction on demand.
 
-### Ethical Scraping & Rate Limiting
-To prevent IP bans and respect web servers:
-- Minimum delay of **500ms** enforced between consecutive chapter downloads.
-- Automatic exponential backoff when encountering HTTP 429 (Too Many Requests).
+### 2.3 Provider Failure Isolation
+The repository dispatches requests to `/public/gutenberg` and `/public/standard-ebooks` independently. Upstream latency or provider outages (HTTP 502/504) from one provider do not block or discard results from the other. The UI receives partial results accompanied by a recoverable error state.
+
+### 2.4 Account, Shelf Synchronization & Publishing
+- `POST /api/v1/auth/register` & `POST /api/v1/auth/login`: User session management.
+- `GET /api/v1/auth/me`: Authenticated profile and stats.
+- `POST /api/v1/shelf/sync`: Account-scoped shelf and reading checkpoint synchronization.
+- `GET /api/v1/auth/me/reading-stats`: Aggregate reading analytics.
+- `POST /api/v1/stories`: Publish community stories.
 
 ---
 
-## 3. Jsoup Content Extraction & Sanitization Pipeline
+## 3. OkHttp Network Client Configuration
 
-When an extractor fetches raw HTML for a chapter, it routes through a two-stage parsing and sanitization pipeline:
-
-```
-[Raw HTML Response] 
-        │
-        ▼
-[Jsoup DOM Parsing] (CSS Selectors isolate chapter container)
-        │
-        ▼
-[Jsoup Sanitization Filter] (Safelist strips scripts, iframes, styles, ads)
-        │
-        ▼
-[Clean Structured HTML] (Stored in Scoped Storage sandbox)
-```
-
-### Strict Sanitizer Safelist
 ```kotlin
-fun sanitizeChapterHtml(rawHtml: String): String {
-    val safelist = Safelist.relaxed()
-        .removeTags("script", "style", "iframe", "embed", "object", "form", "input", "button")
-        .removeAttributes(":all", "onclick", "onload", "onerror", "style", "id", "class")
-    return Jsoup.clean(rawHtml, safelist)
-}
+val okHttpClient = OkHttpClient.Builder()
+    .connectTimeout(15, TimeUnit.SECONDS)
+    .readTimeout(20, TimeUnit.SECONDS)
+    .writeTimeout(15, TimeUnit.SECONDS)
+    .addInterceptor { chain ->
+        val request = chain.request().newBuilder()
+            .header("Accept", "application/json")
+            .header("User-Agent", "Fable-Android/${BuildConfig.VERSION_NAME}")
+            .build()
+        chain.proceed(request)
+    }
+    .build()
 ```
 
-### Memory-Conscious DOM Traversal
-- Jsoup `Document` objects are parsed strictly on `Dispatchers.Default`.
-- The cleaned text or HTML string is extracted immediately, and the heavy DOM tree is allowed to be garbage collected to prevent memory bloat.
+---
+
+## 4. Deferred Direct-Scraping Specification
+
+The legacy client-side extractor interface (`Source`) and Jsoup HTML web scraper pipeline are **DEFERRED** per ADR 009. All content extraction is owned by the shared backend to ensure cross-platform parity with iOS, reduce mobile battery and memory usage, and centralize rate-limiting compliance. Direct scrapers must not be reintroduced without an updated ADR.
 
