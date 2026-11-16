@@ -149,6 +149,8 @@ class FableViewModelChapterLoadingTest {
         }
         override suspend fun searchGutenberg(topic: String?, search: String?) =
             Result.success(emptyList<Story>())
+        override suspend fun searchStandardEbooks(topic: String?, search: String?) =
+            Result.success(emptyList<Story>())
         override suspend fun searchManga(search: String?, limit: Int, offset: Int) =
             Result.success(emptyList<Story>())
         override suspend fun publishStory(title: String, genre: String, synopsis: String, content: String) =

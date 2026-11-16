@@ -213,6 +213,126 @@ class RoomStoryRepositoryGutenbergIntegrationTest {
     }
 
     @Test
+    fun standardEbooksDiscoveryAndChaptersPreserveProviderIdentityAlongsideGutenbergEdition() = runTest {
+        val gutenbergStoryId = "00000000-0000-0000-0000-000000000159"
+        val standardEbooksStoryId = "4e39ab55-d25a-52a0-ad55-832f2fc8da8e"
+        val dao = InMemoryStoryDao()
+        val requests = CopyOnWriteArrayList<String>()
+        val api = FableApiService(
+            baseUrl = "https://fable.test/api/v1/",
+            client = OkHttpClient.Builder().addInterceptor(
+                Interceptor { chain ->
+                    val request = chain.request()
+                    val path = request.url.encodedPath
+                    requests += path
+                    when (path) {
+                        "/api/v1/public/gutenberg" -> jsonResponse(
+                            request,
+                            200,
+                            """
+                            [
+                              {
+                                "id": "$gutenbergStoryId",
+                                "title": "Dracula",
+                                "author": "Bram Stoker",
+                                "genre": "Gothic",
+                                "synopsis": "Gutenberg edition.",
+                                "content": "",
+                                "readTimeMinutes": 650,
+                                "totalChapters": 0,
+                                "contentFormat": "PROSE",
+                                "sourceProvider": "GUTENBERG",
+                                "providerId": "345"
+                              }
+                            ]
+                            """.trimIndent()
+                        )
+                        "/api/v1/public/standard-ebooks" -> jsonResponse(
+                            request,
+                            200,
+                            """
+                            [
+                              {
+                                "id": "$standardEbooksStoryId",
+                                "title": "Dracula",
+                                "author": "Bram Stoker",
+                                "genre": "Horror",
+                                "synopsis": "Standard Ebooks edition.",
+                                "content": "",
+                                "readTimeMinutes": 700,
+                                "totalChapters": 0,
+                                "contentFormat": "PROSE",
+                                "sourceProvider": "STANDARD_EBOOKS",
+                                "providerId": "bram-stoker/dracula"
+                              }
+                            ]
+                            """.trimIndent()
+                        )
+                        "/api/v1/public/standard-ebooks/chapters" -> {
+                            assertEquals("bram-stoker/dracula", request.url.queryParameter("book_id"))
+                            jsonResponse(
+                                request,
+                                200,
+                                """
+                                [
+                                  {
+                                    "id": "se-dracula-ch-1",
+                                    "storyId": "$standardEbooksStoryId",
+                                    "chapterNumber": 1,
+                                    "title": "I: Jonathan Harker's Journal",
+                                    "content": "Left Munich at 8:35 P.M. on 1st May, arriving at Vienna early next morning.",
+                                    "wordCount": 1400,
+                                    "createdAtUtc": "2026-11-16T00:00:00Z"
+                                  }
+                                ]
+                                """.trimIndent()
+                            )
+                        }
+                        else -> error("Unexpected path: $path")
+                    }
+                }
+            ).build()
+        )
+        val repository = RoomStoryRepository(
+            api = api,
+            dao = dao,
+            deviceId = "device-test",
+            accessTokenProvider = { null }
+        )
+
+        val gutenbergResults = repository.searchGutenberg(search = "Dracula").getOrThrow()
+        val seResults = repository.searchStandardEbooks(search = "Dracula").getOrThrow()
+
+        assertEquals(1, gutenbergResults.size)
+        assertEquals(1, seResults.size)
+
+        val catalog = repository.observeCatalog().first()
+        assertEquals(2, catalog.size)
+        assertEquals(
+            setOf("GUTENBERG" to "345", "STANDARD_EBOOKS" to "bram-stoker/dracula"),
+            catalog.map { it.sourceProvider.wireValue to it.providerId }.toSet()
+        )
+
+        assertTrue(repository.refreshStory(standardEbooksStoryId).isSuccess)
+        assertTrue(repository.refreshChapters(standardEbooksStoryId).isSuccess)
+
+        assertEquals(
+            listOf(
+                "/api/v1/public/gutenberg",
+                "/api/v1/public/standard-ebooks",
+                "/api/v1/public/standard-ebooks/chapters"
+            ),
+            requests.toList()
+        )
+
+        val hydratedSe = repository.observeStory(standardEbooksStoryId).first()!!
+        assertEquals("bram-stoker/dracula", hydratedSe.providerId)
+        assertEquals(1, hydratedSe.totalChapters)
+        assertEquals("I: Jonathan Harker's Journal", hydratedSe.chapter)
+        assertTrue(hydratedSe.content.startsWith("Left Munich at 8:35 P.M."))
+    }
+
+    @Test
     fun refreshingSubsequentChapterDoesNotCorruptChapterOneFallbackOrSynopsis() = runTest {
         val storyId = "11111111-2222-3333-4444-555555555555"
         val dao = InMemoryStoryDao()
