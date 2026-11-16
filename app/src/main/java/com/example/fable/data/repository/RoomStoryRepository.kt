@@ -84,12 +84,15 @@ class RoomStoryRepository(
         val existing = dao.getStory(storyId)
         val provider = SourceProvider.fromWireValue(existing?.sourceProvider.orEmpty())
         val gutenbergId = resolveGutenbergId(existing, storyId)
-        if (existing != null && (provider == SourceProvider.GUTENBERG || gutenbergId != null)) {
+        if (existing != null && (provider == SourceProvider.GUTENBERG || provider == SourceProvider.STANDARD_EBOOKS || gutenbergId != null)) {
             return@runCatching
         }
         val remote = when {
             provider == SourceProvider.GUTENBERG || gutenbergId != null ->
                 gutenbergId?.let { api.fetchGutenbergStory(it) } ?: api.fetchStory(storyId)
+            provider == SourceProvider.STANDARD_EBOOKS ->
+                existing?.providerId?.takeIf(String::isNotBlank)?.let { api.fetchStandardEbooksStory(it) }
+                    ?: api.fetchStory(storyId)
             provider == SourceProvider.MANGADEX ->
                 existing?.providerId?.let { api.fetchMangaStory(it) } ?: api.fetchStory(storyId)
             else -> api.fetchStory(storyId)
@@ -116,6 +119,9 @@ class RoomStoryRepository(
         val remoteChapters = when {
             provider == SourceProvider.GUTENBERG || gutenbergId != null ->
                 gutenbergId?.let { api.fetchGutenbergChapters(it) } ?: api.fetchChapters(storyId)
+            provider == SourceProvider.STANDARD_EBOOKS ->
+                story?.providerId?.takeIf(String::isNotBlank)?.let { api.fetchStandardEbooksChapters(it) }
+                    ?: api.fetchChapters(storyId)
             provider == SourceProvider.MANGADEX ->
                 story?.providerId?.let { api.fetchMangaChapters(it, limit = 50) } ?: api.fetchChapters(storyId)
             else -> api.fetchChapters(storyId)
@@ -143,6 +149,15 @@ class RoomStoryRepository(
                 dao.replaceChapters(storyId, chapters)
                 hydrateStoryFromChapters(storyId, chapters)
             }
+            provider == SourceProvider.STANDARD_EBOOKS && !story?.providerId.isNullOrBlank() -> {
+                val remoteChapters = api.fetchStandardEbooksChapters(requireNotNull(story?.providerId))
+                if (remoteChapters.none { it.chapterNumber == chapterNumber }) {
+                    error("Chapter $chapterNumber is not available.")
+                }
+                val chapters = mergeChapters(storyId, remoteChapters)
+                dao.replaceChapters(storyId, chapters)
+                hydrateStoryFromChapters(storyId, chapters)
+            }
             provider == SourceProvider.MANGADEX && !story?.providerId.isNullOrBlank() -> {
                 val remoteChapters = api.fetchMangaChapters(requireNotNull(story?.providerId), limit = 50)
                 if (remoteChapters.none { it.chapterNumber == chapterNumber }) {
@@ -163,6 +178,12 @@ class RoomStoryRepository(
 
     override suspend fun searchGutenberg(topic: String?, search: String?): Result<List<Story>> = runCatching {
         val remote = api.fetchGutenbergStories(topic = topic, search = search)
+        val persisted = persistStories(remote)
+        persisted.map { it.toDomain() }
+    }
+
+    override suspend fun searchStandardEbooks(topic: String?, search: String?): Result<List<Story>> = runCatching {
+        val remote = api.fetchStandardEbooksStories(topic = topic, search = search)
         val persisted = persistStories(remote)
         persisted.map { it.toDomain() }
     }
