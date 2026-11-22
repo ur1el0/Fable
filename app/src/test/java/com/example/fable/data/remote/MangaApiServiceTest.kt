@@ -54,43 +54,103 @@ class MangaApiServiceTest {
     }
 
     @Test
-    fun rejectsExternalImageUrlsFromMangaApiResponse() = runTest {
+    fun dropsExternalCoverUrlWithoutFailingValidCatalogItems() = runTest {
+        val validCover = "https://uploads.mangadex.org/covers/77bee52c-d2d6-44ad-a33a-1734c1fe696a/6079dd31-838b-4d61-87c4-121f3ad19158.jpg.256.jpg"
         val recorder = JsonResponseInterceptor(
-            body = """[{"id":"story-id","coverImageUrl":"https://example.com/image.jpg"}]"""
+            body = """
+                [
+                  {"id":"bad-story","coverImageUrl":"https://example.com/image.jpg"},
+                  {"id":"good-story","coverImageUrl":"$validCover"}
+                ]
+            """.trimIndent()
         )
-        val error = runCatching { service(recorder).fetchMangaStories() }.exceptionOrNull()
 
-        assertEquals(IllegalArgumentException::class.java, error?.javaClass)
+        val stories = service(recorder).fetchMangaStories()
+
+        assertEquals(2, stories.size)
+        assertNull(stories[0].coverImageUrl)
+        assertEquals(validCover, stories[1].coverImageUrl)
     }
 
     @Test
-    fun rejectsMangaDexLookalikeImageHosts() = runTest {
+    fun dropsMangaDexLookalikeCoverHostsWithoutFailingCatalog() = runTest {
         val recorder = JsonResponseInterceptor(
             body = """[{"id":"story-id","coverImageUrl":"https://uploads.mangadex.org.example.com/covers/77bee52c-d2d6-44ad-a33a-1734c1fe696a/cover.jpg.256.jpg"}]"""
         )
-        val error = runCatching { service(recorder).fetchMangaStories() }.exceptionOrNull()
 
-        assertEquals(IllegalArgumentException::class.java, error?.javaClass)
+        val story = service(recorder).fetchMangaStories().single()
+
+        assertNull(story.coverImageUrl)
     }
 
     @Test
-    fun rejectsUnexpectedPathsOnMangaDexImageHosts() = runTest {
+    fun dropsUnexpectedPathsOnMangaDexCoverHostsWithoutFailingCatalog() = runTest {
         val recorder = JsonResponseInterceptor(
             body = """[{"id":"story-id","coverImageUrl":"https://uploads.mangadex.org/admin/77bee52c-d2d6-44ad-a33a-1734c1fe696a/cover.jpg.256.jpg"}]"""
         )
-        val error = runCatching { service(recorder).fetchMangaStories() }.exceptionOrNull()
 
-        assertEquals(IllegalArgumentException::class.java, error?.javaClass)
+        val story = service(recorder).fetchMangaStories().single()
+
+        assertNull(story.coverImageUrl)
     }
 
     @Test
-    fun rejectsInsecureMangaDexImageUrls() = runTest {
+    fun dropsInsecureMangaDexCoverUrlsWithoutFailingCatalog() = runTest {
         val recorder = JsonResponseInterceptor(
             body = """[{"id":"story-id","coverImageUrl":"http://uploads.mangadex.org/covers/77bee52c-d2d6-44ad-a33a-1734c1fe696a/cover.jpg.256.jpg"}]"""
         )
-        val error = runCatching { service(recorder).fetchMangaStories() }.exceptionOrNull()
 
-        assertEquals(IllegalArgumentException::class.java, error?.javaClass)
+        val story = service(recorder).fetchMangaStories().single()
+
+        assertNull(story.coverImageUrl)
+    }
+
+    @Test
+    fun acceptsPngCoverThumbnailAndNormalizesBlankCoverToNull() = runTest {
+        val pngCover = "https://uploads.mangadex.org/covers/77bee52c-d2d6-44ad-a33a-1734c1fe696a/cover-image.png.256.jpg"
+        val recorder = JsonResponseInterceptor(
+            body = """
+                [
+                  {"id":"png-story","coverImageUrl":"$pngCover"},
+                  {"id":"blank-story","coverImageUrl":"   "}
+                ]
+            """.trimIndent()
+        )
+
+        val stories = service(recorder).fetchMangaStories()
+
+        assertEquals(pngCover, stories[0].coverImageUrl)
+        assertNull(stories[1].coverImageUrl)
+    }
+
+    @Test
+    fun acceptsUploadsHostAndCustomPortAtHomePageUrls() = runTest {
+        val uploadsPage = "https://uploads.mangadex.org/data-saver/cfdcdc22b8556e8adb22744ed24c05e7/page-1.png"
+        val customPortNodePage = "https://node1.mangadex.network:8443/data/cfdcdc22b8556e8adb22744ed24c05e7/page.1.gif"
+        val recorder = JsonResponseInterceptor(
+            body = """[{"id":"chapter","chapterNumber":1,"title":"Chapter 1","pageUrls":["$uploadsPage","$customPortNodePage"]}]"""
+        )
+
+        val chapter = service(recorder).fetchMangaChapters("manga-id").single()
+
+        assertEquals(listOf(uploadsPage, customPortNodePage), chapter.pageUrls)
+    }
+
+    @Test
+    fun rejectsUntrustedHttpAndLookalikeChapterPageUrls() = runTest {
+        val badUrls = listOf(
+            "https://example.com/data/cfdcdc22b8556e8adb22744ed24c05e7/page.jpg",
+            "http://cmdxd98sb0x3yprd.mangadex.network/data/cfdcdc22b8556e8adb22744ed24c05e7/page.jpg",
+            "https://cmdxd98sb0x3yprd.mangadex.network.example.com/data/cfdcdc22b8556e8adb22744ed24c05e7/page.jpg",
+            "https://uploads.mangadex.org:8443/data/cfdcdc22b8556e8adb22744ed24c05e7/page.jpg"
+        )
+        badUrls.forEach { badUrl ->
+            val recorder = JsonResponseInterceptor(
+                body = """[{"id":"chapter","chapterNumber":1,"title":"Chapter 1","pageUrls":["$badUrl"]}]"""
+            )
+            val error = runCatching { service(recorder).fetchMangaChapters("manga-id") }.exceptionOrNull()
+            assertEquals("Expected rejection for $badUrl", IllegalArgumentException::class.java, error?.javaClass)
+        }
     }
 
     private fun service(interceptor: JsonResponseInterceptor) = MangaApiService(

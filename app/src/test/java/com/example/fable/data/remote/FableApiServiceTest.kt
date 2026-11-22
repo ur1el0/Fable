@@ -2,11 +2,16 @@ package com.example.fable.data.remote
 
 import com.example.fable.data.remote.dto.ShelfSyncItemDto
 import com.example.fable.data.remote.dto.ShelfSyncRequestDto
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import okhttp3.Call
+import okhttp3.EventListener
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
@@ -20,6 +25,9 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 class FableApiServiceTest {
     private val json = Json { ignoreUnknownKeys = true }
@@ -62,6 +70,61 @@ class FableApiServiceTest {
         assertEquals("/api/v1/public/gutenberg", request.url.encodedPath)
         assertEquals("Folklore", request.url.queryParameter("topic"))
         assertEquals("Alice", request.url.queryParameter("search"))
+    }
+
+    @Test
+    fun fetchGutenbergStoriesForwardsSortParameter() = runTest {
+        val recorder = JsonResponseInterceptor(body = "[]")
+        val service = service(recorder)
+
+        service.fetchGutenbergStories(search = "Alice", sort = "popular")
+
+        val request = recorder.requests.single()
+        assertEquals("/api/v1/public/gutenberg", request.url.encodedPath)
+        assertEquals("popular", request.url.queryParameter("sort"))
+    }
+
+    @Test
+    fun cancellingCoroutineCancelsInFlightOkHttpCall() = runTest {
+        val callStarted = CompletableDeferred<Unit>()
+        val callCanceled = CountDownLatch(1)
+        val interceptorDone = CountDownLatch(1)
+        val interceptorCanceled = AtomicBoolean(false)
+        val client = OkHttpClient.Builder()
+            .eventListener(
+                object : EventListener() {
+                    override fun canceled(call: Call) {
+                        callCanceled.countDown()
+                    }
+                }
+            )
+            .addInterceptor { chain ->
+                try {
+                    val call = chain.call()
+                    callStarted.complete(Unit)
+                    val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+                    while (!call.isCanceled() && System.nanoTime() < deadline) {
+                        Thread.sleep(10)
+                    }
+                    interceptorCanceled.set(call.isCanceled())
+                    throw java.io.IOException("Canceled")
+                } finally {
+                    interceptorDone.countDown()
+                }
+            }
+            .build()
+        val service = FableApiService(baseUrl = "https://fable.test/api/v1/", client = client)
+
+        val job = launch(Dispatchers.IO) {
+            service.fetchHealth()
+        }
+        callStarted.await()
+        job.cancel()
+        job.join()
+
+        assertTrue(callCanceled.await(2, TimeUnit.SECONDS))
+        assertTrue(interceptorDone.await(2, TimeUnit.SECONDS))
+        assertTrue(interceptorCanceled.get())
     }
 
     @Test
