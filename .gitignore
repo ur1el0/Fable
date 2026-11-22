@@ -1,6 +1,7 @@
 # Built Android and Gradle binaries
 *.iml
 .gradle/
+.kotlin/
 /build/
 /*/build/
 *.apk

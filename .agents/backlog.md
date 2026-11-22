@@ -1,33 +1,18 @@
-# Fable Android Open Backlog
+# Fable Android Engineering Backlog & Status
 
-This is the open-work list for the implementation described by ADR 009. Do not copy unchecked items from the original scraper/download-manager roadmap into active work.
+## Completed Milestones (Refinement Branch `feat/android-v2-refinement`)
 
-## Priority 0: Runtime Integration
+- [x] **Multi-Provider Catalog Parity**: Integrated Standard Ebooks (`STANDARD_EBOOKS`) alongside Fable Originals (`FABLE`), Project Gutenberg (`GUTENBERG`), and MangaDex (`MANGADEX`) with parallel, fault-isolated `refreshCatalog()`.
+- [x] **Shared Cancellable Transport & URL Hardening**: Unified network calls on `FableHttpClient.executeCancellable()` and added strict URL validation (`ServerUrlValidator`, `MangaApiService.sanitizeHttpUrl`).
+- [x] **Runtime Debug Server URL Switcher**: Added `DebugServerConfigStore` and `ServerConfigViewModel` in **Account → Developer server** for debug builds (`BuildConfig.DEBUG`) while enforcing HTTPS in release builds.
+- [x] **Story Ownership, Editing & Deletion**: Upgraded Room to v5 (`MIGRATION_4_5`, `ownerUserId`), added `EditStoryScreen` (with full-story pre-hydration), `PATCH /api/v1/stories/{id}`, and `DELETE /api/v1/stories/{id}`.
+- [x] **Account Lifecycle & 401 Recovery**: Added automatic `401 Unauthorized` session reset and permanent account deletion (`DELETE /api/v1/auth/me`) with local Room data purge.
+- [x] **Explicit Offline Chapter Cache Management**: Added `observeDownloadedStoryIds()`, `downloadStoryForOffline()`, `removeStoryOfflineCopy()`, `OfflineCacheCard`, `"Offline"` story badges, and the Shelf `Offline` filter tab.
+- [x] **ViewModel Decomposition & Typed Navigation**: Replaced monolithic `FableViewModel` with `CatalogViewModel`, `ExploreViewModel`, `ReaderViewModel`, `StoryEditorViewModel`, `WriterDraftViewModel`, `AccountViewModel`, and `ServerConfigViewModel`, plus typed `FableNavBackStack`.
+- [x] **Adaptive Theme & Reader Ergonomics**: Added `AppAppearance` (`SYSTEM`, `LIGHT`, `DARK`) with WCAG AA dark palette, per-session screen brightness slider (`ReaderWindowBrightnessEffect`), word-offset paginated progress preservation (`ReaderProgressMapper`), and comic pinch-to-zoom (`1x..4x`) + double-tap zoom (`ComicZoomMath`).
+- [x] **In-Book Search, Passage Highlights & Quote Cards**: Upgraded Room to v6 (`MIGRATION_5_6`, `story_highlights`), added cross-chapter search (`InBookSearchEngine`), word-range highlight editor (`PassageHighlightEditorSheet`), Markdown/text export (`HighlightExporter`), and 1080px PNG Quote Card sharing (`QuoteCardExporter`).
 
-- [ ] Connect an Android emulator or physical device and configure a backend URL reachable from that device.
-- [ ] Exercise backend health, catalog search, story details, and an on-demand chapter fetch from the Android app.
-- [ ] Sign in, change shelf state, verify account-scoped synchronization, then sign out and confirm the guest shelf remains isolated.
-- [ ] Publish a test story through the UI and verify the resulting account-owned story.
-- [ ] Open a cached story and chapter with networking disabled; verify reading position and local state remain usable.
-- [ ] Run the instrumentation suite on a device or emulator and record runtime failures separately from compile failures.
+## Ongoing Operational Checks
 
-## Priority 1: Confirmed Reliability Gaps
-
-- [ ] Reproduce provider catalog cold-cache failures and confirm the Android UI preserves cached results and presents a recoverable error.
-- [ ] Verify partial catalog or chapter refreshes never replace richer cached metadata or content with empty fields.
-- [ ] Exercise process recreation during reading and pending reading-session synchronization.
-- [ ] Review account changes and shelf synchronization for stale-owner state on device.
-
-## Priority 2: Release Readiness
-
-- [ ] Verify production API configuration uses a reachable HTTPS endpoint and debug-only local URLs do not leak into release builds.
-- [ ] Review accessibility semantics, touch targets, font scaling, and narrow-screen layouts on device.
-- [ ] Measure reader scrolling and chapter-open behavior on representative hardware before setting performance targets.
-- [ ] Validate Room migrations from each supported prior schema and document the upgrade path.
-
-## Deferred by Product Scope
-
-- Direct Android scraping, extractor plugins, and provider-specific clients.
-- WorkManager batch downloads and a separate chapter-file storage subsystem.
-- New account, backup, or provider behavior that is not part of the shared API contract.
-
+- [ ] Execute `:app:connectedDebugAndroidTest` on a physical device or hardware-accelerated emulator whenever environment changes affect Android runtime APIs or SQLite migrations.
+- [ ] Perform live end-to-end smoke checks against the deployed Render backend (`https://fable-api-cbo8.onrender.com/api/v1/`) before cutting a release tag.

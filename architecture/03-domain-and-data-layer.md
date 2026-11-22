@@ -1,109 +1,32 @@
 # 03 Domain & Data Layer Architecture
 
-## Current Implementation
+## 1. Domain Layer (`com.example.fable.domain`)
 
-The Android client now shares Fable-IOS domain concepts: `Story`, `Chapter`, `GenreCategory`, and `Writer`. `StoryRepository` is the domain contract; `RoomStoryRepository` combines the Fable API client with Room and preserves local shelf state when catalog metadata is refreshed.
+The domain layer is pure Kotlin and defines the core models, deterministic calculation engines, and repository interfaces:
 
-`FableApplication` is the composition root for the Room database and repository. Remote DTOs stay in the data layer and map into plain Kotlin domain models. The earlier Book/source-extractor examples below are the initial plan and remain future extension points.
+### Core Domain Models (`domain/model/`)
+- **`Story` & `Chapter`**: Format-aware (`ContentFormat.PROSE`, `ContentFormat.COMIC`) and provider-aware (`StoryProvider.FABLE`, `GUTENBERG`, `STANDARD_EBOOKS`, `MANGADEX`) models with ownership metadata (`ownerUserId`), shelf flags (`isBookmarked`, `isCompleted`, `readingProgress`, `lastReadChapterIndex`), prose body (`content`), and comic page descriptors (`pages: List<ChapterPage>`).
+- **`StoryHighlight` & `HighlightColor`**: Passage highlight model supporting exact word ranges (`paragraphIndex`, `startWordIndex`, `endWordIndex`), color swatches (`TERRACOTTA`, `AMBER`, `SAGE`), optional reader notes, and timestamps.
+- **`ReaderPreferences` & `AppAppearance`**: User preferences for `ReaderTheme` (`PAPER`, `SEPIA`, `NIGHT`), `ReaderFont` (`SERIF`, `SANS`, `MONO`), `ReaderLayout` (`SCROLL`, `PAGINATED`), `ComicReaderLayout` (`WEBTOON`, `MANGA`), font size (`15f..26f`), line height (`1.25f..1.9f`), `appAppearance` (`SYSTEM`, `LIGHT`, `DARK`), and optional `readerBrightness` (`0.05f..1.0f` or `null` for system auto).
+- **`AccountSession`, `AuthUser`, `ReadingStatsSummary`, `ReadingSessionRecord`, `WriterDraft`, `StorySubmission`**.
 
-## 1. Clean Architecture Separation
-
-Fable enforces a strict boundary between business logic (Domain) and infrastructure/persistence logic (Data).
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                      Domain Layer                       │
-│  - Models: Book, Chapter, ReadingProgress, Category     │
-│  - Use Cases: GetBookUseCase, DownloadChapterUseCase    │
-│  - Contracts: BookRepository, ChapterRepository         │
-│  - Pure Kotlin (NO android.* dependencies)              │
-└────────────────────────────▲────────────────────────────┘
-                             │ Implemented by
-┌────────────────────────────┴────────────────────────────┐
-│                       Data Layer                        │
-│  - Implements Repository Interfaces                     │
-│  - Local Data: Room DAOs & SQLite Database              │
-│  - File System: App-specific Scoped Storage             │
-│  - Remote Data: OkHttp Client & Jsoup Parsers           │
-└─────────────────────────────────────────────────────────┘
-```
+### Deterministic Reading & Annotation Engines (`domain/reading/`)
+- **`ReaderTextPaginator`**: Splits prose chapters into normalized paragraphs and balanced screen-sized pages (`ReaderPageSlice`) with global word offsets (`firstWordIndex`, `wordCount`).
+- **`ReaderProgressMapper`**: Converts between chapter-level normalized progress (`0f..1f`), scroll item offsets, paginated page indices, and word indices so switching font size, line height, or scroll/paginated layout preserves the user's exact reading location.
+- **`InBookSearchEngine`**: Tokenizes paragraphs into words (`tokenizeWords`), slices word ranges (`sliceWordRange`), and executes fast cross-chapter keyword searches (`searchStory`) returning contextual snippets and word offsets.
+- **`HighlightExporter`**: Formats a story's highlights and notes into shareable plain text or Markdown documents.
+- **`ComicZoomMath`**: Computes clamped zoom scales (`1f..4f`), double-tap zoom transitions (`1f <-> 2.5f`), and viewport-bounded pan offsets for comic pages.
 
 ---
 
-## 2. Domain Models & Use Cases
+## 2. Data Layer Repositories (`com.example.fable.data.repository`)
 
-### Domain Entities
-- **`Book`**: Core literary work entity:
-  ```kotlin
-  data class Book(
-      val id: String,
-      val title: String,
-      val author: String,
-      val coverUrl: String?,
-      val description: String?,
-      val sourceId: String,
-      val isFavorite: Boolean = false,
-      val totalChapters: Int = 0,
-      val createdAt: Long,
-      val lastReadAt: Long?
-  )
-  ```
-- **`Chapter`**: Individual installment entity:
-  ```kotlin
-  data class Chapter(
-      val id: String,
-      val bookId: String,
-      val title: String,
-      val chapterNumber: Float,
-      val url: String,
-      val isRead: Boolean = false,
-      val isDownloaded: Boolean = false,
-      val releaseDate: Long?
-  )
-  ```
-- **`ReadingProgress`**: Position state:
-  ```kotlin
-  data class ReadingProgress(
-      val bookId: String,
-      val chapterId: String,
-      val pageIndex: Int,
-      val scrollOffset: Int,
-      val lastReadTime: Long
-  )
-  ```
-
-### Domain Use Cases
-Each Use Case encapsulates a single, testable business requirement:
-- `GetFavoriteBooksUseCase`: Emits `Flow<List<Book>>` of library books.
-- `GetBookWithChaptersUseCase`: Fetches a book and its full chapter list from Room.
-- `ToggleFavoriteUseCase`: Toggles a book's library bookmark state.
-- `SaveReadingProgressUseCase`: Persists chapter ID, page index, and scroll offset.
-- `DownloadChapterUseCase`: Schedules background download work in WorkManager.
-
----
-
-## 3. Data Layer Implementation & Repository Pattern
-
-### Repository Contracts & Implementations
-1. **`BookRepository`**:
-   - `observeFavorites(): Flow<List<Book>>`
-   - `getBook(id: String): Flow<Book?>`
-   - `saveBook(book: Book): suspend Unit`
-   - `toggleFavorite(bookId: String): suspend Unit`
-2. **`ChapterRepository`**:
-   - `observeChapters(bookId: String): Flow<List<Chapter>>`
-   - `getChapterContent(bookId: String, chapterId: String): suspend String`
-   - `markChapterRead(chapterId: String, isRead: Boolean): suspend Unit`
-3. **`SourceRepository`**:
-   - `search(query: String, sourceId: String, page: Int): suspend List<Book>`
-   - `fetchChapterList(bookUrl: String, sourceId: String): suspend List<Chapter>`
-
----
-
-## 4. Concurrency & Coroutine Dispatchers
-
-All operations follow structured concurrency:
-- **`Dispatchers.IO`**: Exclusively used for Room database queries, file writing/reading in Scoped Storage, and OkHttp network calls.
-- **`Dispatchers.Default`**: Used for CPU-heavy tasks such as Jsoup DOM tree traversal, text parsing, and pagination calculations.
-- **`Dispatchers.Main.immediate`**: Used strictly for ViewModel state emissions to Jetpack Compose.
-
+| Interface | Implementation | Key Responsibilities |
+|---|---|---|
+| `StoryRepository` | `RoomStoryRepository` | Observes stories and offline download IDs from Room; refreshes Fable, Gutenberg, Standard Ebooks, and MangaDex catalogs concurrently; hydrates prose and manga chapters on demand; executes story publish/edit/delete; manages explicit offline chapter download and removal; reconciles account-scoped `shelf_states`. |
+| `HighlightRepository` | `RoomHighlightRepository` | Observes, upserts, and deletes passage highlights in `story_highlights` (`HighlightDao`). |
+| `AccountRepository` | `RemoteAccountRepository` | Persists auth tokens and account profile locally; performs sign-in, registration, profile update, password reset, sign-out, and account deletion (`DELETE /auth/me`); automatically resets session state on `401 Unauthorized` and coordinates local account data purge. |
+| `ReadingStatsRepository` | `RoomReadingStatsRepository` | Records local reading sessions first (`reading_sessions`), updates optimistic local summaries (`reading_stats`), and syncs pending sessions (`POST /me/reading-sessions`) with the backend. |
+| `WriterDraftRepository` | `RoomWriterDraftRepository` | Persists and observes local manuscript drafts (`writer_drafts`). |
+| `ReaderPreferencesRepository` | `SharedPreferencesReaderPreferencesRepository` | Persists reader typography, layout, brightness, and global `AppAppearance` settings. |
+| `ServerConfigRepository` | `DebugServerConfigStore` | Stores and validates debug runtime API base URL overrides (`ServerUrlValidator`); strictly disabled in release builds. |

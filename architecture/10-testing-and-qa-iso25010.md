@@ -1,44 +1,30 @@
-# 10 Testing Protocols & Quality Assurance (ISO/IEC 25010)
+# 10 Testing & Quality Assurance (ISO/IEC 25010)
 
-## 1. QA Methodology & Test Matrix
+## 1. Multi-Tier Verification Matrix
 
-Fable enforces a strict automated quality assurance discipline spanning unit tests, database verification, and Compose UI component tests.
+Fable Android enforces deterministic automated verification across JVM unit tests, Robolectric/Compose component tests, Room SQLite migration tests, Android Lint, and device/emulator instrumentation tests:
 
-### 1.1 Automated Test Suite Matrix
-
-| Test Suite | Scope & Target | Framework / Tools | Verified Behavior |
-| :--- | :--- | :--- | :--- |
-| **TC-ROOM-01** | `BookDao` & `ChapterDao` | Room In-Memory SQLite | Inserting books and cascading chapter deletion works without referential errors. |
-| **TC-ROOM-02** | `HistoryDao` | Room In-Memory + Turbine | Reading progress emissions emit reactively across Flow collectors. |
-| **TC-USECASE-01** | `GetBookWithChaptersUseCase` | JUnit 4 / Kotlin Test | Aggregates book metadata and ordered chapter lists accurately. |
-| **TC-USECASE-02** | `SaveReadingProgressUseCase` | JUnit 4 + Test Dispatcher | Debounced scroll positions are correctly saved to repository. |
-| **TC-EXTRACT-01** | `SourceExtractor` | Jsoup + Static HTML Fixture | Parses chapter links and titles from static HTML snapshots without network. |
-| **TC-EXTRACT-02** | `HtmlSanitizer` | Jsoup Safelist | Strips `<script>`, `<iframe>`, and malicious `onerror` event triggers cleanly. |
-| **TC-WORKER-01** | `DownloadWorker` | WorkManager Test Driver | Successfully transitions chapter download state from QUEUED to DOWNLOADED. |
-| **TC-COMPOSE-01** | `ReaderControlsOverlay` | Compose Testing Rule | Center tap properly toggles visibility of top and bottom reader chrome. |
+| Test Suite | Location | What It Verifies |
+|---|---|---|
+| **API & Transport Tests** | `FableApiServiceTest`, `MangaApiServiceTest`, `ServerUrlValidatorTest` | REST path/method contracts (`GET`, `POST`, `PATCH`, `DELETE`), Standard Ebooks & Gutenberg normalization, MangaDex URL sanitization, coroutine-to-OkHttp call cancellation, and URL validation rules. |
+| **Repository & Data Integrity Tests** | `RoomStoryRepositoryComicTest`, `RoomStoryRepositoryManagementTest`, `RemoteAccountRepositoryTest`, `SharedPreferencesReaderPreferencesRepositoryTest` | Parallel fault-isolated catalog refresh, non-destructive `coalesceChapters`, story edit/delete, explicit offline chapter download/removal, account deletion purge, 401 session reset, and preference persistence. |
+| **Reader & Annotation Engine Tests** | `ReaderTextPaginatorTest`, `ReaderProgressMapperTest`, `InBookSearchAndHighlightTest`, `ComicZoomMathTest`, `MangaChapterReaderTest` | Word-offset pagination, progress preservation across font/layout changes, cross-chapter search snippets, word-range highlight slicing, Markdown/text highlight export, comic zoom/pan clamping, and webtoon/manga Compose UI rendering. |
+| **ViewModel & Navigation Tests** | `FableNavigationTest`, `CatalogViewModelTest`, `ExploreViewModelTest`, `ReaderViewModelTest`, `StoryEditorViewModelTest`, `WriterDraftViewModelTest`, `AccountViewModelTest`, `ServerConfigViewModelTest` | Typed back-stack navigation/savers, debounced search cancellation, full-story hydration prior to editing, offline download UI state transitions, draft auto-save, and account lifecycle states. |
+| **Android Instrumentation & Room Migrations** | `app/src/androidTest/.../ShelfStateMigrationTest`, `FableAppSmokeTest` | Real SQLite schema upgrades across `MIGRATION_1_2`, `MIGRATION_2_3`, `MIGRATION_3_4`, `MIGRATION_4_5`, and `MIGRATION_5_6`, plus Compose app launch smoke verification on a running Android runtime. |
 
 ---
 
-## 2. ISO/IEC 25010 Quality Evaluation
+## 2. Standard Verification Commands
 
-Fable is systematically evaluated against the ISO/IEC 25010 software product quality standard:
+```bash
+# 1. Full JVM unit test suite (115 tests), Android Lint, Debug APK, and AndroidTest compilation
+./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:compileDebugAndroidTestKotlin
 
-### 2.1 Functional Suitability
-- **Completeness:** Provides end-to-end reading capabilities: source discovery, library management, background downloads, and reading progress tracking.
-- **Correctness:** Room database operations use SQLite ACID transactions to ensure reading history and bookmarks are never corrupted.
+# 2. Release build validation (HTTPS URL gate + lintVitalRelease + R8 minification)
+./gradlew :app:assembleRelease -PfableReleaseApiBaseUrl=https://api.example.invalid/api/v1/
 
-### 2.2 Performance Efficiency
-- **Time Behavior:** Reader chapter loading latency under 150ms from local storage; 60fps rendering during continuous scrolling (<16ms frame budget).
-- **Resource Utilization:** Baseline memory footprint under 90MB; Coil image cache strictly capped at 20% of maximum heap. Zero CPU background wake locks when downloads are idle.
+# 3. Instrumentation tests on a connected device or running emulator
+./gradlew :app:connectedDebugAndroidTest
+```
 
-### 2.3 Usability & Accessibility
-- **Ergonomics:** Paging and vertical scroll modes, adjustable typography (font scale, line height, paragraph spacing), and four distinct color themes (Light, Dark, AMOLED, Sepia).
-- **Accessibility (a11y):** All clickable controls adhere to the standard 48x48dp touch target minimum. Meaningful `contentDescription` attributes on all non-decorative icons.
-
-### 2.4 Reliability (Offline Resilience)
-- **Fault Tolerance:** If remote sources change layout or return HTTP 429/503 errors, previously downloaded chapters remain 100% accessible offline without app crashes.
-- **Recoverability:** WorkManager automatically reschedules interrupted chapter downloads when network connectivity is restored.
-
-### 2.5 Security
-- **Data Protection:** Scoped Storage isolation prevents unauthorized cross-app data access; Jsoup sanitization prevents arbitrary script execution in reader layouts.
-
+> **Verification Honesty Rule:** `:app:compileDebugAndroidTestKotlin` verifies that instrumentation tests compile, whereas `:app:connectedDebugAndroidTest` executes them on an active Android device or emulator. Always report the two distinctly.

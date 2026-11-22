@@ -1,127 +1,97 @@
-# 04 Database Schema & Persistence (Room SQLite)
+# 04 Database Schema & Persistence (Room v6)
 
-## Current Android Schema
+## 1. Relational Schema Architecture
 
-The current implementation uses two tables. `stories` caches backend catalog metadata and keeps device-owned bookmark, completion, page progress, and last-chapter state. `chapters` caches prose or manga chapter content and references `stories.id` with cascade deletion.
+Fable Android uses **AndroidX Room (`FableDatabase`, version 6)** with schema export enabled (`app/schemas/com.example.fable.data.local.FableDatabase/1.json` through `6.json`). Every schema upgrade is backed by an explicit SQL `Migration` (`MIGRATION_1_2` through `MIGRATION_5_6`) and verified by `ShelfStateMigrationTest`.
 
-The Room schema is versioned and exported to `app/schemas/`. `StoryDao` exposes catalog, shelf, story, and chapter data as `Flow`; remote refreshes update cached content while retaining local reading state. Chapter replacement runs in a transaction so readers never observe a partially refreshed chapter list.
+```
+┌──────────────────────────────────────────┐
+│                 stories                  │
+├──────────────────────────────────────────┤
+│ PK  id: TEXT                             │
+│     ownerUserId: TEXT?                   │
+│     title: TEXT                          │
+│     author: TEXT                         │
+│     AuthorBio: TEXT                      │
+│     genre: TEXT                          │
+│     readTimeMinutes: INTEGER             │
+│     rating: REAL                         │
+│     synopsis: TEXT                       │
+│     accentHex: TEXT                      │
+│     featuredRank: INTEGER?               │
+│     isBookmarked: INTEGER (legacy col)   │
+│     isCompleted: INTEGER (legacy col)    │
+│     readingProgress: REAL (legacy col)   │
+│     lastReadChapterIndex: INTEGER        │
+│     provider: TEXT                       │
+│     contentFormat: TEXT                  │
+│     coverImageUrl: TEXT?                 │
+│     externalId: TEXT?                    │
+│     sourceUrl: TEXT?                     │
+└──────────┬─────────────────────┬─────────┘
+           │ 1:N (CASCADE)       │ 1:N (CASCADE)
+           ▼                     ▼
+┌─────────────────────────┐  ┌─────────────────────────────┐
+│        chapters         │  │      story_highlights       │
+├─────────────────────────┤  ├─────────────────────────────┤
+│ PK  storyId: TEXT (FK)  │  │ PK  id: TEXT                │
+│ PK  index: INTEGER      │  │ FK  storyId: TEXT           │
+│     chapterId: TEXT     │  │     chapterIndex: INTEGER   │
+│     title: TEXT         │  │     chapterTitle: TEXT      │
+│     readTimeMinutes: INT│  │     paragraphIndex: INTEGER │
+│     content: TEXT       │  │     startWordIndex: INTEGER │
+│     pagesJson: TEXT     │  │     endWordIndex: INTEGER   │
+│     pageCount: INTEGER  │  │     quoteText: TEXT         │
+└─────────────────────────┘  │     note: TEXT              │
+                             │     colorName: TEXT         │
+                             │     createdAtEpochMillis    │
+                             └─────────────────────────────┘
 
-The tables below describe the original generic-reader plan and are not implemented in schema version 1.
+┌─────────────────────────┐  ┌─────────────────────────────┐
+│      shelf_states       │  │      reading_sessions       │
+├─────────────────────────┤  ├─────────────────────────────┤
+│ PK  ownerId: TEXT       │  │ PK  sessionId: TEXT         │
+│ PK  storyId: TEXT       │  │     ownerId: TEXT           │
+│     isBookmarked: INT   │  │     storyId: TEXT           │
+│     isCompleted: INT    │  │     chapterIndex: INTEGER   │
+│     readingProgress:REAL│  │     durationSeconds: INT    │
+│     lastReadChapterIdx  │  │     wordsRead: INTEGER      │
+│     updatedAtEpochMs    │  │     completedStory: INTEGER │
+│     pendingSync: INT    │  │     endedAtIso: TEXT        │
+└─────────────────────────┘  │     pendingSync: INTEGER    │
+                             └─────────────────────────────┘
 
-## 1. RDBMS Strategy: Room Persistence Library
-
-Fable uses **AndroidX Room** over an embedded **SQLite** engine as the single source of truth for the entire application. Room provides compile-time query verification via KSP, robust reactive `Flow` observation, and transactional integrity.
-
----
-
-## 2. Table Schemas & Room Entities
-
-### 2.1 Table: `books` (`BookEntity`)
-Stores metadata and user library flags for all tracked novels and books.
-
-| Column | Data Type | Constraints | Description |
-| :--- | :--- | :--- | :--- |
-| `id` | `TEXT` | PRIMARY KEY, NOT NULL | Unique composite ID (e.g., `"${sourceId}_${slug}"`) |
-| `title` | `TEXT` | NOT NULL | Title of the work |
-| `author` | `TEXT` | NOT NULL | Author or creator name |
-| `cover_url` | `TEXT` | NULL | Remote or cached URL for the cover illustration |
-| `description` | `TEXT` | NULL | Synopsis or blurb |
-| `source_id` | `TEXT` | NOT NULL | Identifier of the source extractor origin |
-| `is_favorite` | `INTEGER` | NOT NULL, DEFAULT 0 | Library bookmark flag (1 = in library, 0 = browsing cache) |
-| `total_chapters`| `INTEGER` | NOT NULL, DEFAULT 0 | Count of discovered chapters |
-| `created_at` | `INTEGER` | NOT NULL | Timestamp when book was first saved |
-| `last_read_at` | `INTEGER` | NULL | Timestamp when book was last opened |
-
-**Indices:**
-- `CREATE INDEX index_books_source_id ON books(source_id);`
-- `CREATE INDEX index_books_is_favorite ON books(is_favorite);`
-- `CREATE INDEX index_books_last_read_at ON books(last_read_at);`
-
----
-
-### 2.2 Table: `chapters` (`ChapterEntity`)
-Stores individual chapter metadata and read/download states.
-
-| Column | Data Type | Constraints | Description |
-| :--- | :--- | :--- | :--- |
-| `id` | `TEXT` | PRIMARY KEY, NOT NULL | Unique chapter ID (e.g., `"${bookId}_ch_${num}"`) |
-| `book_id` | `TEXT` | NOT NULL, FK (`books.id`), ON DELETE CASCADE | Associated book reference |
-| `title` | `TEXT` | NOT NULL | Chapter display title |
-| `chapter_number`| `REAL` | NOT NULL | Numeric sequence ordering (supports floats like 10.5) |
-| `url` | `TEXT` | NOT NULL | Source URL for web content extraction |
-| `is_read` | `INTEGER` | NOT NULL, DEFAULT 0 | Completion flag (1 = completed) |
-| `download_state`| `TEXT` | NOT NULL, DEFAULT 'NOT_DOWNLOADED' | `'NOT_DOWNLOADED'`, `'QUEUED'`, `'DOWNLOADING'`, `'DOWNLOADED'` |
-| `release_date` | `INTEGER` | NULL | Publication timestamp |
-
-**Indices & Foreign Keys:**
-```kotlin
-@Entity(
-    tableName = "chapters",
-    foreignKeys = [
-        ForeignKey(
-            entity = BookEntity::class,
-            parentColumns = ["id"],
-            childColumns = ["book_id"],
-            onDelete = ForeignKey.CASCADE
-        )
-    ],
-    indices = [
-        Index(value = ["book_id"]),
-        Index(value = ["chapter_number"])
-    ]
-)
+┌─────────────────────────┐  ┌─────────────────────────────┐
+│      reading_stats      │  │        writer_drafts        │
+├─────────────────────────┤  ├─────────────────────────────┤
+│ PK  ownerId: TEXT       │  │ PK  draftKey: TEXT          │
+│     totalReadingMinutes │  │     title: TEXT             │
+│     totalWordsRead: INT │  │     genre: TEXT             │
+│     completedStoriesCount│ │     synopsis: TEXT          │
+│     activeDaysLast7: INT│  │     chapterTitle: TEXT      │
+│     currentStreakDays   │  │     body: TEXT              │
+│     sessionsCount: INT  │  │     updatedAtEpochMillis    │
+│     lastReadAtIso: TEXT?│  └─────────────────────────────┘
+└─────────────────────────┘
 ```
 
 ---
 
-### 2.3 Table: `categories` (`CategoryEntity`) & `book_categories` (`BookCategoryCrossRef`)
-Supports user-defined library categories (e.g., "Currently Reading", "Plan to Read").
+## 2. Schema Version History & Migrations
 
-- **`categories` Table:**
-  - `id`: `INTEGER PRIMARY KEY AUTOINCREMENT`
-  - `name`: `TEXT NOT NULL UNIQUE`
-  - `sort_order`: `INTEGER NOT NULL DEFAULT 0`
-- **`book_categories` (Cross-Reference Table):**
-  - `book_id`: `TEXT NOT NULL, FK(books.id) ON DELETE CASCADE`
-  - `category_id`: `INTEGER NOT NULL, FK(categories.id) ON DELETE CASCADE`
-  - `PRIMARY KEY (book_id, category_id)`
-
----
-
-### 2.4 Table: `reading_history` (`HistoryEntity`)
-Tracks exact checkpoint progress within a book.
-
-| Column | Data Type | Constraints | Description |
-| :--- | :--- | :--- | :--- |
-| `book_id` | `TEXT` | PRIMARY KEY, FK (`books.id`), ON DELETE CASCADE | Associated book |
-| `chapter_id` | `TEXT` | NOT NULL | Active chapter ID |
-| `page_index` | `INTEGER` | NOT NULL, DEFAULT 0 | Page index in Paging Mode |
-| `scroll_offset` | `INTEGER` | NOT NULL, DEFAULT 0 | Exact pixel scroll offset in Continuous Scroll Mode |
-| `last_read_time`| `INTEGER` | NOT NULL | Checkpoint update timestamp |
+| Migration | Target Version | Changes Introduced |
+|---|---|---|
+| Base (`1.json`) | `v1` | Initial `stories` and `chapters` tables (`ForeignKey.CASCADE` on `chapters.storyId`). |
+| `MIGRATION_1_2` | `v2` | Added `shelf_states` (account-scoped shelf progress with `ownerId`), `reading_sessions`, and `reading_stats`; backfilled existing shelf flags from `stories` into the `__guest__` owner scope. |
+| `MIGRATION_2_3` | `v3` | Added provider and comic metadata columns to `stories` (`provider`, `contentFormat`, `coverImageUrl`, `externalId`, `sourceUrl`) and comic page columns to `chapters` (`chapterId`, `pagesJson`, `pageCount`). |
+| `MIGRATION_3_4` | `v4` | Added `writer_drafts` table for local auto-saved author manuscripts (`WriterDraftEntity`). |
+| `MIGRATION_4_5` | `v5` | Added nullable `ownerUserId` column to `stories` so published Fable Originals can be matched to the signed-in author for Edit/Delete permissions and account deletion cleanup. |
+| `MIGRATION_5_6` | `v6` | Added `story_highlights` table with foreign key `CASCADE` to `stories(id)` and indices on `storyId` and `(storyId, chapterIndex)` for persistent passage highlights and annotations. |
 
 ---
 
-### 2.5 Table: `downloads` (`DownloadEntity`)
-Manages the active chapter download queue.
+## 3. Data Integrity & Offline Cache Rules
 
-| Column | Data Type | Constraints | Description |
-| :--- | :--- | :--- | :--- |
-| `chapter_id` | `TEXT` | PRIMARY KEY, FK (`chapters.id`), ON DELETE CASCADE | Target chapter |
-| `book_id` | `TEXT` | NOT NULL | Associated book ID |
-| `status` | `TEXT` | NOT NULL | `'QUEUED'`, `'DOWNLOADING'`, `'COMPLETED'`, `'FAILED'` |
-| `progress` | `INTEGER` | NOT NULL, DEFAULT 0 | Percentage progress (0-100) |
-| `file_path` | `TEXT` | NULL | Relative path within internal storage sandbox |
-| `queued_at` | `INTEGER` | NOT NULL | Queue entry timestamp |
-
----
-
-## 3. Schema Migrations & KSP Export
-
-Room is configured to export schema definitions to `app/schemas/`:
-```kotlin
-ksp {
-    arg("room.schemaLocation", "$projectDir/schemas")
-}
-```
-All entity modifications require an explicit `Migration(from, to)` implementation verifying SQLite table alterations before shipping production updates.
-
+- **Non-Destructive Chapter Merging (`coalesceChapters`)**: Catalog and search endpoints return lightweight story summaries whose chapters have empty `content` and empty `pages`. When `RoomStoryRepository` upserts catalog results, it preserves existing cached chapter bodies and comic page lists in `chapters`.
+- **Offline Chapter Detection (`observeDownloadedStoryIds`)**: `StoryDao.observeDownloadedStoryIds()` emits story IDs that have at least one chapter with non-blank prose `content` or a non-empty `pagesJson` payload (`!= '[]'`).
+- **Explicit Offline Cache Removal (`clearOfflineCache`)**: Clears `content = ''` and `pagesJson = '[]'` for a story's chapters inside a Room transaction without deleting the `StoryEntity` or user `ShelfStateEntity`.

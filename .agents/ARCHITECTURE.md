@@ -1,35 +1,36 @@
-# Fable - System Architecture
+# Fable Android Architecture Guide
 
-## 1. High-Level Architecture
-Fable follows an offline-first Clean Architecture pattern with Unidirectional Data Flow (UDF):
-- **UI Layer (Presentation)**: Purely declarative user interface built with Jetpack Compose and Material 3, orchestrated by ViewModels exposing immutable `StateFlow<UiState>`.
-- **Domain Layer**: Pure Kotlin business logic encapsulating Use Cases (e.g., `GetBookWithChaptersUseCase`, `DownloadChapterUseCase`), business models, and repository interfaces.
-- **Data Layer**: Single source of truth backed by a local Room (SQLite) database, accompanied by app-internal Scoped Storage for downloaded chapters and cached images.
-- **Source Extractor Layer**: Modular web-scraping extractors implementing standard contracts using OkHttp and Jsoup to parse novels and chapters from remote web sources.
-- **Background Task Pipeline**: AndroidX WorkManager orchestrating reliable, constraint-aware background downloads and chapter updates.
+This document summarizes the active architecture of Fable Android (`com.example.fable`). See [`architecture/01-system-overview.md`](file:///home/dokja/.local/share/fable-worktrees/android-refinement/architecture/01-system-overview.md) through [`architecture/11-build-and-ci-cd.md`](file:///home/dokja/.local/share/fable-worktrees/android-refinement/architecture/11-build-and-ci-cd.md) and [`PRODUCT.md`](file:///home/dokja/.local/share/fable-worktrees/android-refinement/PRODUCT.md) for deep dives.
 
-## 2. Mobile Infrastructure & Runtime Environment
-- **Platform**: Android Native (Kotlin 2.2+)
-- **SDK Target**: Min SDK 24 (Android 7.0 Nougat) to Target SDK 36 (Android 16)
-- **Build System**: Gradle Kotlin DSL with centralized dependency management via `gradle/libs.versions.toml`
-- **Asynchronous Concurrency**: Kotlin Coroutines & Asynchronous Reactive Streams via `StateFlow` / `SharedFlow`
+---
 
-## 3. Core Technologies
-- **Language**: Kotlin
-- **UI Framework**: Jetpack Compose (Compose BOM 2026.02.01, Material 3, Compose Navigation)
-- **Local Persistence**: Room SQLite with KSP schema verification
-- **Networking**: OkHttp 4.x / 5.x with custom User-Agent interception and rate-limiting
-- **Content Parsing**: Jsoup for robust HTML parsing, CSS-selector DOM querying, and tag sanitization
-- **Image Pipeline**: Coil 3.x with disk and memory LRU caching
-- **Background Execution**: AndroidX WorkManager (`CoroutineWorker`)
+## 1. Layer Breakdown
 
-## 4. Security Architecture
-- **Offline Data Sovereignty**: All user library data, reading progress, and custom categories reside strictly on-device with zero telemetry or third-party tracking.
-- **Storage Sandboxing**: All chapters and cached media are stored inside app-specific internal storage (`context.filesDir`), immune to cross-app inspection on Android 10+.
-- **HTML Sanitization**: External web chapter HTML is cleansed via Jsoup `Safelist` to strip `<script>`, `<style>`, `<iframe>`, and JavaScript event attributes before rendering.
-- **Safe Network Layer**: Enforces TLS 1.3/HTTPS and blocks cleartext traffic by default in `AndroidManifest.xml`.
+### Presentation Layer (`app/src/main/java/com/example/fable/ui/`)
+- **App Shell & Typed Navigation**:
+  - `FableApp.kt` coordinates the 5 top-level tabs (`FableTab`: `LIBRARY`, `EXPLORE`, `SHELF`, `WRITE`, `ACCOUNT`) and drill-down destinations (`FableDestination`: `TabRoot`, `StoryDetail`, `StoryReader`, `StoryEdit`) using `FableNavBackStack` (`ui/navigation/FableNavigation.kt`).
+- **Decomposed Domain-Scoped ViewModels (`ui/viewmodel/`)**:
+  - `CatalogViewModel`: Catalog state, offline downloaded story IDs (`observeDownloadedStoryIds`), pull-to-refresh, and explicit offline download/removal (`downloadStoryForOffline`, `removeStoryOfflineCopy`).
+  - `ExploreViewModel`: Format-aware discovery (`ContentFormat.PROSE` vs `COMIC`), provider filtering (`FABLE`, `GUTENBERG`, `STANDARD_EBOOKS`, `MANGADEX`), and debounced cancellable search.
+  - `ReaderViewModel`: Chapter hydration, debounced reading progress (`350ms`), reading session recording, reader display preferences, and Room passage highlights.
+  - `StoryEditorViewModel`: Story publishing, pre-edit full chapter hydration, owner story updates (`PATCH /stories/{id}`), and owner story deletion (`DELETE /stories/{id}`).
+  - `WriterDraftViewModel`: Local Room draft auto-save (`writer_drafts`).
+  - `AccountViewModel`: Authentication, profile management, password reset, account deletion (`DELETE /auth/me`), reading stats sync, and 401 session expiry reset.
+  - `ServerConfigViewModel`: Debug-only runtime server URL switcher (`DebugServerConfigStore`).
+- **Screens & Reader Components (`ui/screens/`)**:
+  - `LibraryScreen.kt`, `ExploreScreen.kt`, `ShelfScreen.kt`, `WriteScreen.kt`, `EditStoryScreen.kt`, `AccountScreen.kt`, `StoryDetailScreen.kt`, `StoryReaderScreen.kt`.
+  - Modular reader components in `ui/screens/components/`: `ContinuousChapterList.kt`, `PaginatedChapterPager.kt`, `MangaChapterReader.kt`, `ReaderControlsOverlay.kt`, `ReaderChaptersSheet.kt`, `ReaderDisplayOptionsSheet.kt`, `ReaderAnnotationSheets.kt`, and `QuoteCardExporter.kt`.
 
-## 5. Source Extractor System
-- **Decoupled Contracts**: Extractors implement a universal `Source` interface (`getPopularBooks()`, `searchBooks()`, `getChapterList()`, `getChapterContent()`).
-- **Resilient Fallbacks**: If a source layout changes or fails due to network limitations, cached local chapters remain 100% accessible offline without app crashes.
+### Domain Layer (`app/src/main/java/com/example/fable/domain/`)
+- **Models (`domain/model/`)**: `Story`, `Chapter`, `ChapterPage`, `ContentFormat`, `StoryProvider`, `StoryHighlight`, `HighlightColor`, `ReaderPreferences`, `AppAppearance`, `AccountSession`, `ReadingStatsSummary`, `ReadingSessionRecord`, `WriterDraft`, `StorySubmission`.
+- **Reading & Annotation Engines (`domain/reading/`)**: `ReaderTextPaginator`, `ReaderProgressMapper`, `InBookSearchEngine`, `HighlightExporter`, `ComicZoomMath`.
+- **Repository Interfaces (`domain/repository/`)**: `StoryRepository`, `HighlightRepository`, `AccountRepository`, `ReadingStatsRepository`, `WriterDraftRepository`, `ReaderPreferencesRepository`, `ServerConfigRepository`.
 
+### Data Layer (`app/src/main/java/com/example/fable/data/`)
+- **Room Database (`FableDatabase`, schema version 6)**:
+  - 7 tables: `stories` (with `ownerUserId`), `chapters`, `shelf_states`, `reading_sessions`, `reading_stats`, `writer_drafts`, `story_highlights`.
+  - Migrations: `MIGRATION_1_2`, `MIGRATION_2_3`, `MIGRATION_3_4`, `MIGRATION_4_5`, `MIGRATION_5_6` with exported JSON schemas in `app/schemas/com.example.fable.data.local.FableDatabase/1.json`..`6.json`.
+- **Remote Transport (`data/remote/`)**:
+  - `FableHttpClient`: Shared `OkHttpClient` with bounded timeouts (`10s` connect, `20s` read/write, `30s` call) and coroutine-aware `executeCancellable()`.
+  - `FableApiService` & `MangaApiService`: Normalized REST clients for Fable Originals, Project Gutenberg, Standard Ebooks, MangaDex, auth, publishing, and shelf/stats sync.
+  - `ServerUrlValidator` & `DebugServerConfigStore`: Runtime server URL validation and debug switching.

@@ -1,23 +1,30 @@
-# ADR 010: Format-Aware Discovery and Comic Reading
+# ADR 010: Format-Aware Discovery and Reading Mechanics
 
 ## Status
 
-Accepted
+Accepted.
 
 ## Context
 
-Fable serves prose books and image-based comics through the shared backend. A prose flow with adjustable typography and scrolling or pagination does not fit multi-page comics, while rendering every page of a chapter in one Compose column can retain too many image nodes on lower-memory devices. Gutenberg also exposes catalog, popular, and recent sorts through its API, so sorting a partial local cache cannot produce the same results as the provider catalog.
+Fable supports two distinct reading mediums through the shared `/api/v1/` backend:
+
+1. **Prose books and stories (`ContentFormat.PROSE`)** from Fable Originals (`FABLE`), Project Gutenberg (`GUTENBERG`), and Standard Ebooks (`STANDARD_EBOOKS`).
+2. **Sequential art (`ContentFormat.COMIC`)** from MangaDex (`MANGADEX`).
+
+Combining prose books and manga into an undifferentiated list or forcing both through a single reader layout degrades usability: prose readers expect typographic controls, paginated book mode, in-book search, and passage highlights, whereas manga and webtoon readers expect vertical strip or horizontal page-flip layouts, two-finger pinch-to-zoom, lazy image placeholders, and per-page retry controls.
 
 ## Decision
 
-- Keep provider sorting in the shared API contract. Android passes the selected Gutenberg sort to the backend and uses Room-cached stories while a request is in flight or unavailable.
-- Keep prose rendering in its text reader. Route manga chapters to a dedicated reader with a lazy vertical page list for webtoon-style reading or a one-page horizontal pager for page-turn reading, including left-to-right and right-to-left directions.
-- Persist the manga reading mode through the existing reader-preferences repository. Do not change the stored story or chapter schema for this preference.
-- Debounce page-progress writes while reading and save the visible position when leaving a comic chapter, reducing repeated shelf synchronization while retaining the latest location.
+1. **Format-Aware Discovery (`ExploreScreen` & `ExploreViewModel`)**:
+   - The Explore screen separates **Books** (`ContentFormat.PROSE`) from **Manga & Comics** (`ContentFormat.COMIC`) with dedicated format toggles and provider chips (`All Books`, `Fable`, `Gutenberg`, `Standard Ebooks` for prose; `MangaDex` for comics).
+2. **Format-Aware Reader Dispatch (`StoryReaderScreen`)**:
+   - `ContentFormat.PROSE` stories render via `ContinuousChapterList` (scroll mode) or `PaginatedChapterPager` (paginated book mode) with word-offset progress mapping (`ReaderProgressMapper`), cross-chapter keyword search (`InBookSearchEngine`), Room passage highlights (`story_highlights`), and 1080px PNG quote card export (`QuoteCardExporter`).
+   - `ContentFormat.COMIC` stories render via `MangaChapterReader` supporting `ComicReaderLayout.WEBTOON` (vertical strip) and `ComicReaderLayout.MANGA` (horizontal pager), two-finger pinch-to-zoom (`1x..4x`), double-tap zoom (`1x <-> 2.5x`), bounded panning (`ComicZoomMath`), fixed-aspect loading placeholders, per-page error retry, and chapter transition banners.
+3. **Shared Cancellable Transport & Parallel Catalog Sync**:
+   - All network calls share `FableHttpClient` (`executeCancellable`) so cancelled search or reader coroutines immediately abort in-flight OkHttp calls.
+   - `RoomStoryRepository.refreshCatalog()` fetches all four providers concurrently in a fault-isolated `supervisorScope`.
 
 ## Consequences
 
-- Recent and popular discovery reflects backend ordering rather than client-side ordering of an incomplete cache.
-- Only visible and nearby comic pages need to be composed by the reader; the previous eager fixed-height image stack is removed from the prose chapter renderer.
-- A user can keep one comic reading mode across launches without changing the prose reader's typography or layout preferences.
-- Device-level memory, frame pacing, chapter transitions, and offline image behavior still require manual validation on representative Android hardware before performance claims are made.
+- Prose and comic features evolve cleanly without regressing each other's layout or gesture handling.
+- Explicit offline chapter caching (`downloadStoryForOffline` / `removeStoryOfflineCopy`) supports both prose chapter text (`content`) and comic page descriptors (`pagesJson`).
