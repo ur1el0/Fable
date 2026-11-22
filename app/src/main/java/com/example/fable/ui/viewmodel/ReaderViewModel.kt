@@ -3,6 +3,7 @@ package com.example.fable.ui.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.example.fable.domain.model.AppAppearance
 import com.example.fable.domain.model.Chapter
 import com.example.fable.domain.model.ReaderPreferences
 import com.example.fable.domain.model.Story
@@ -173,8 +174,15 @@ class ReaderViewModel(
         mutableUiState.update { it.copy(readerPreferences = preferences) }
     }
 
+    fun updateAppAppearance(appAppearance: AppAppearance) {
+        updateReaderPreferences(
+            mutableUiState.value.readerPreferences.copy(appAppearance = appAppearance)
+        )
+    }
+
     fun resetReaderPreferences() {
-        updateReaderPreferences(ReaderPreferences())
+        val currentAppearance = mutableUiState.value.readerPreferences.appAppearance
+        updateReaderPreferences(ReaderPreferences(appAppearance = currentAppearance))
     }
 
     fun downloadStoryForOffline() {

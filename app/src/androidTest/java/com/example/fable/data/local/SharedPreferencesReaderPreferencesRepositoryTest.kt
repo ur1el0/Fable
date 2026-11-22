@@ -3,6 +3,7 @@ package com.example.fable.data.local
 import android.content.Context
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.example.fable.domain.model.AppAppearance
 import com.example.fable.domain.model.MangaReadingMode
 import com.example.fable.domain.model.ReaderFont
 import com.example.fable.domain.model.ReaderLayout
@@ -44,7 +45,9 @@ class SharedPreferencesReaderPreferencesRepositoryTest {
             theme = ReaderTheme.OLED,
             lineSpacing = ReaderLineSpacing.SPACIOUS,
             layout = ReaderLayout.PAGINATED,
-            mangaReadingMode = MangaReadingMode.PAGE_RTL
+            mangaReadingMode = MangaReadingMode.PAGE_RTL,
+            appAppearance = AppAppearance.DARK,
+            readerBrightness = 0.65f
         )
 
         repository.save(expected)

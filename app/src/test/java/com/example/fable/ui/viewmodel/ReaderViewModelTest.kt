@@ -1,7 +1,9 @@
 package com.example.fable.ui.viewmodel
 
+import com.example.fable.domain.model.AppAppearance
 import com.example.fable.domain.model.Chapter
 import com.example.fable.domain.model.GenreCategory
+import com.example.fable.domain.model.ReaderFont
 import com.example.fable.domain.model.ReaderPreferences
 import com.example.fable.domain.model.ReadingStats
 import com.example.fable.domain.model.Story
@@ -141,6 +143,27 @@ class ReaderViewModelTest {
         } finally {
             Dispatchers.resetMain()
         }
+    }
+
+    @Test
+    fun resetReaderPreferencesPreservesAppAppearanceWhileResettingTypographyAndBrightness() = runTest {
+        val repository = FakeStoryRepository(chapters = emptyList())
+        val viewModel = viewModel(repository)
+
+        viewModel.updateReaderPreferences(
+            ReaderPreferences(
+                font = ReaderFont.MONO,
+                fontScalePercent = 130,
+                appAppearance = AppAppearance.DARK,
+                readerBrightness = 0.4f
+            )
+        )
+        viewModel.resetReaderPreferences()
+
+        assertEquals(
+            ReaderPreferences(appAppearance = AppAppearance.DARK),
+            viewModel.uiState.value.readerPreferences
+        )
     }
 
     private fun viewModel(repository: StoryRepository) = ReaderViewModel(

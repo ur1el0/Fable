@@ -52,6 +52,7 @@ import com.example.fable.ui.screens.ShelfScreen
 import com.example.fable.ui.screens.StoryDetailScreen
 import com.example.fable.ui.screens.StoryReaderScreen
 import com.example.fable.ui.screens.WriteScreen
+import com.example.fable.ui.theme.FableTheme
 import com.example.fable.ui.viewmodel.AccountViewModel
 import com.example.fable.ui.viewmodel.CatalogViewModel
 import com.example.fable.ui.viewmodel.ExploreViewModel
@@ -183,9 +184,10 @@ fun FableApp(modifier: Modifier = Modifier) {
         }
     }
 
-    Scaffold(
-        modifier = modifier,
-        containerColor = MaterialTheme.colorScheme.background,
+    FableTheme(appAppearance = readerState.readerPreferences.appAppearance) {
+        Scaffold(
+            modifier = modifier,
+            containerColor = MaterialTheme.colorScheme.background,
         snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {
             if (navBackStack.showBottomBar) {
@@ -462,6 +464,7 @@ fun FableApp(modifier: Modifier = Modifier) {
                     }
                 }
             )
+        }
         }
     }
 }

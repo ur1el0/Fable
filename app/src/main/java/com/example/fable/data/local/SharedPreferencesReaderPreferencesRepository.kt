@@ -2,6 +2,7 @@ package com.example.fable.data.local
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.example.fable.domain.model.AppAppearance
 import com.example.fable.domain.model.ReaderFont
 import com.example.fable.domain.model.ReaderLayout
 import com.example.fable.domain.model.ReaderLineSpacing
@@ -15,6 +16,12 @@ class SharedPreferencesReaderPreferencesRepository(context: Context) : ReaderPre
 
     override fun read(): ReaderPreferences {
         val defaults = ReaderPreferences()
+        val storedBrightness = if (preferences.contains(KEY_READER_BRIGHTNESS)) {
+            preferences.getFloat(KEY_READER_BRIGHTNESS, -1f)
+                .takeIf { it in ReaderPreferences.MIN_BRIGHTNESS..ReaderPreferences.MAX_BRIGHTNESS }
+        } else {
+            null
+        }
         return ReaderPreferences(
             font = preferences.readEnum(KEY_FONT, defaults.font),
             fontScalePercent = normalizeFontScale(
@@ -23,19 +30,33 @@ class SharedPreferencesReaderPreferencesRepository(context: Context) : ReaderPre
             theme = preferences.readEnum(KEY_THEME, defaults.theme),
             lineSpacing = preferences.readEnum(KEY_LINE_SPACING, defaults.lineSpacing),
             layout = preferences.readEnum(KEY_LAYOUT, defaults.layout),
-            mangaReadingMode = preferences.readEnum(KEY_MANGA_READING_MODE, defaults.mangaReadingMode)
+            mangaReadingMode = preferences.readEnum(KEY_MANGA_READING_MODE, defaults.mangaReadingMode),
+            appAppearance = preferences.readEnum(KEY_APP_APPEARANCE, defaults.appAppearance),
+            readerBrightness = storedBrightness
         )
     }
 
     override fun save(preferences: ReaderPreferences) {
-        this.preferences.edit()
+        val editor = this.preferences.edit()
             .putString(KEY_FONT, preferences.font.name)
             .putInt(KEY_FONT_SCALE_PERCENT, preferences.fontScalePercent)
             .putString(KEY_THEME, preferences.theme.name)
             .putString(KEY_LINE_SPACING, preferences.lineSpacing.name)
             .putString(KEY_LAYOUT, preferences.layout.name)
             .putString(KEY_MANGA_READING_MODE, preferences.mangaReadingMode.name)
-            .apply()
+            .putString(KEY_APP_APPEARANCE, preferences.appAppearance.name)
+        if (preferences.readerBrightness != null) {
+            editor.putFloat(
+                KEY_READER_BRIGHTNESS,
+                preferences.readerBrightness.coerceIn(
+                    ReaderPreferences.MIN_BRIGHTNESS,
+                    ReaderPreferences.MAX_BRIGHTNESS
+                )
+            )
+        } else {
+            editor.remove(KEY_READER_BRIGHTNESS)
+        }
+        editor.apply()
     }
 
     private inline fun <reified T : Enum<T>> SharedPreferences.readEnum(
@@ -63,5 +84,7 @@ class SharedPreferencesReaderPreferencesRepository(context: Context) : ReaderPre
         const val KEY_LINE_SPACING = "line_spacing"
         const val KEY_LAYOUT = "layout"
         const val KEY_MANGA_READING_MODE = "manga_reading_mode"
+        const val KEY_APP_APPEARANCE = "app_appearance"
+        const val KEY_READER_BRIGHTNESS = "reader_brightness"
     }
 }

@@ -86,7 +86,7 @@ fun ReaderDisplayOptionsSheet(
                 Spacer(Modifier.weight(1f))
                 TextButton(
                     onClick = {
-                        draft = ReaderPreferences()
+                        draft = ReaderPreferences(appAppearance = draft.appAppearance)
                         onReset()
                     },
                     modifier = Modifier.padding(start = 8.dp)
