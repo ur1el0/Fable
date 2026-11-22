@@ -40,7 +40,7 @@ object ReaderPagePacker {
         return pages
     }
 
-    private fun countWords(text: String): Int {
+    fun countWords(text: String): Int {
         var count = 0
         var insideWord = false
         for (character in text) {

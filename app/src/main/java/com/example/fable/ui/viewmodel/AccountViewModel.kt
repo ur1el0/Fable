@@ -3,6 +3,7 @@ package com.example.fable.ui.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.example.fable.data.remote.FableApiException
 import com.example.fable.domain.model.Story
 import com.example.fable.domain.model.UserProfile
 import com.example.fable.domain.repository.AccountRepository
@@ -96,9 +97,22 @@ class AccountViewModel(
                     }
                     loadPublishedStories(user.id)
                 },
-                onFailure = ::finishWithError
+                onFailure = { error ->
+                    if (error is FableApiException && error.statusCode == 401) {
+                        mutableUiState.value = AccountUiState(
+                            errorMessage = "Your session expired. Sign in again."
+                        )
+                    } else {
+                        finishWithError(error)
+                    }
+                }
             )
         }
+    }
+
+    fun refreshPublishedStories() {
+        val userId = mutableUiState.value.user?.id ?: return
+        loadPublishedStories(userId)
     }
 
     fun saveProfile(name: String, handle: String, bio: String) {

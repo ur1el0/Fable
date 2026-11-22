@@ -23,6 +23,7 @@ import com.example.fable.domain.model.Story
 import com.example.fable.domain.model.SourceProvider
 import com.example.fable.domain.model.UpdateFeed
 import com.example.fable.domain.model.Writer
+import com.example.fable.domain.reading.ReaderPagePacker
 import com.example.fable.domain.repository.StoryRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -227,7 +228,7 @@ class RoomStoryRepository(
         synopsis: String,
         content: String
     ): Result<Story> = runCatching {
-        val readTimeMinutes = (content.trim().split(Regex("\\s+")).size / 200).coerceAtLeast(1)
+        val readTimeMinutes = (ReaderPagePacker.countWords(content) / 200).coerceAtLeast(1)
         val remote = api.createStory(
             CreateStoryRequestDto(
                 title = title.trim(),
@@ -363,7 +364,7 @@ class RoomStoryRepository(
             if (chapter.wordCount > 0) {
                 chapter.wordCount
             } else {
-                chapter.content.trim().split(Regex("\\s+")).count(String::isNotBlank)
+                ReaderPagePacker.countWords(chapter.content)
             }
         }
         val computedReadTime = if (totalWords > 0) (totalWords / 200).coerceAtLeast(1) else 0

@@ -25,6 +25,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -33,6 +34,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.example.fable.domain.model.GenreCategory
 import com.example.fable.domain.model.WriterDraft
+import com.example.fable.domain.reading.ReaderPagePacker
 import com.example.fable.ui.viewmodel.WriterDraftUiState
 
 @Composable
@@ -59,6 +61,7 @@ fun WriteScreen(
         .distinctBy(String::lowercase)
     var showDiscardConfirmation by rememberSaveable { mutableStateOf(false) }
     var showGenreMenu by rememberSaveable { mutableStateOf(false) }
+    val contentWordCount = remember(draft.content) { ReaderPagePacker.countWords(draft.content) }
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),
@@ -175,7 +178,7 @@ fun WriteScreen(
                     minLines = 8,
                     supportingText = {
                         Text(
-                            "${draft.content.trim().split(Regex("\\s+")).count { word -> word.isNotEmpty() }} words",
+                            "$contentWordCount words",
                             textAlign = TextAlign.End,
                             modifier = Modifier.fillMaxWidth()
                         )

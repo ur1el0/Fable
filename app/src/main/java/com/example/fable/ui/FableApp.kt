@@ -12,6 +12,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
@@ -19,6 +21,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -37,6 +41,7 @@ import com.example.fable.ui.screens.WriteScreen
 import com.example.fable.ui.viewmodel.FableViewModel
 import com.example.fable.ui.viewmodel.AccountViewModel
 import com.example.fable.ui.viewmodel.WriterDraftViewModel
+import kotlinx.coroutines.launch
 
 private val tabs = listOf(
     "Library" to Icons.Outlined.Book,
@@ -69,6 +74,8 @@ fun FableApp(modifier: Modifier = Modifier) {
     val selectedStory = state.selectedStory
     var accountOpen by rememberSaveable { mutableStateOf(false) }
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val snackbarScope = rememberCoroutineScope()
 
     LaunchedEffect(accountState.localAccountId) {
         viewModel.setShelfOwner(accountState.localAccountId)
@@ -82,6 +89,7 @@ fun FableApp(modifier: Modifier = Modifier) {
     Scaffold(
         modifier = modifier,
         containerColor = MaterialTheme.colorScheme.background,
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {
             if (selectedStory == null && !accountOpen) {
                 NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
@@ -187,6 +195,7 @@ fun FableApp(modifier: Modifier = Modifier) {
                             content = draft.content,
                             onPublished = {
                                 writerDraftViewModel.clearAfterPublished(writerOwnerId, draft)
+                                accountViewModel.refreshPublishedStories()
                             }
                         )
                     }
@@ -222,7 +231,13 @@ fun FableApp(modifier: Modifier = Modifier) {
                             "${story.title} by ${story.author}\n\n${story.synopsis}"
                         )
                     }
-                    context.startActivity(Intent.createChooser(shareIntent, "Share story details"))
+                    runCatching {
+                        context.startActivity(Intent.createChooser(shareIntent, "Share story details"))
+                    }.onFailure {
+                        snackbarScope.launch {
+                            snackbarHostState.showSnackbar("Unable to open share sheet.")
+                        }
+                    }
                 }
             )
         }

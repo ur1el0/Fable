@@ -1,6 +1,7 @@
 package com.example.fable.data.repository
 
 import com.example.fable.data.local.SecureSessionStore
+import com.example.fable.data.remote.FableApiException
 import com.example.fable.data.remote.FableApiService
 import com.example.fable.data.remote.dto.LoginRequestDto
 import com.example.fable.data.remote.dto.PasswordResetConfirmRequestDto
@@ -21,7 +22,12 @@ class RemoteAccountRepository(
     override fun currentAccountId(): String? = sessionStore.readAccountId()
 
     override suspend fun currentUser(): Result<UserProfile> = runCatching {
-        api.fetchCurrentUser().toDomain()
+        try {
+            api.fetchCurrentUser().toDomain()
+        } catch (error: FableApiException) {
+            if (error.statusCode == 401) sessionStore.clear()
+            throw error
+        }
     }
 
     override suspend fun myStories(): Result<List<Story>> = runCatching {

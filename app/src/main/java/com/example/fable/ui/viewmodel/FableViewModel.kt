@@ -21,7 +21,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -90,26 +93,50 @@ class FableViewModel(
         if (mutableUiState.value.isRefreshing) return
         viewModelScope.launch {
             mutableUiState.update { it.copy(isRefreshing = true, errorMessage = null) }
-            var firstError: Throwable? = null
+            coroutineScope {
+                val storiesDeferred = async { repository.refreshStories() }
+                val genresDeferred = async { runCancellableCatching { repository.fetchGenres() } }
+                val authorsDeferred = async { runCancellableCatching { repository.fetchTopAuthors() } }
+                val updatesDeferred = async { repository.refreshUpdateFeed() }
+                val gutenbergDeferred = async { repository.searchGutenberg(topic = "fiction") }
+                val standardEbooksDeferred = async { repository.searchStandardEbooks(topic = "fiction") }
 
-            repository.refreshStories().onFailure { firstError = it }
-            runCatching { repository.fetchGenres() }
-                .onSuccess { genres -> mutableUiState.update { it.copy(genres = genres) } }
-                .onFailure { if (firstError == null) firstError = it }
-            runCatching { repository.fetchTopAuthors() }
-                .onSuccess { writers -> mutableUiState.update { it.copy(writers = writers) } }
-                .onFailure { if (firstError == null) firstError = it }
-            repository.refreshUpdateFeed()
-                .onSuccess { feed -> mutableUiState.update { it.copy(updateFeed = feed) } }
-                .onFailure { if (firstError == null) firstError = it }
+                val storiesResult = storiesDeferred.await()
+                val genresResult = genresDeferred.await()
+                val authorsResult = authorsDeferred.await()
+                val updatesResult = updatesDeferred.await()
+                // External provider pre-warming is isolated so transient upstream outages
+                // never trigger the global Library error banner.
+                gutenbergDeferred.await()
+                standardEbooksDeferred.await()
 
-            mutableUiState.update {
-                it.copy(
-                    isRefreshing = false,
-                    errorMessage = firstError?.message?.takeIf(String::isNotBlank)
+                val coreErrors = listOfNotNull(
+                    storiesResult.exceptionOrNull(),
+                    genresResult.exceptionOrNull(),
+                    authorsResult.exceptionOrNull(),
+                    updatesResult.exceptionOrNull()
                 )
+                mutableUiState.update { state ->
+                    state.copy(
+                        genres = genresResult.getOrNull() ?: state.genres,
+                        writers = authorsResult.getOrNull() ?: state.writers,
+                        updateFeed = updatesResult.getOrNull() ?: state.updateFeed,
+                        isRefreshing = false,
+                        errorMessage = coreErrors.firstNotNullOfOrNull { error ->
+                            error.message?.takeIf(String::isNotBlank)
+                        }
+                    )
+                }
             }
         }
+    }
+
+    private suspend inline fun <T> runCancellableCatching(block: () -> T): Result<T> = try {
+        Result.success(block())
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (error: Throwable) {
+        Result.failure(error)
     }
 
     fun toggleBookmark(story: Story) {

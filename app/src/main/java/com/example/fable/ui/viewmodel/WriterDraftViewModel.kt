@@ -89,7 +89,6 @@ class WriterDraftViewModel(
         viewModelScope.launch {
             runCatching {
                 persistenceMutex.withLock {
-                    if (current.hasUnsavedChanges) repository.save(ownerId, current.draft)
                     repository.clear(ownerId)
                 }
             }.fold(
