@@ -69,4 +69,18 @@ class RemoteAccountRepository(
         sessionStore.clear()
         remoteResult.getOrThrow()
     }
+
+    override suspend fun deleteAccount(): Result<Unit> = runCatching {
+        try {
+            api.deleteAccount()
+            sessionStore.clear()
+        } catch (error: FableApiException) {
+            if (error.statusCode == 401) sessionStore.clear()
+            throw error
+        }
+    }
+
+    override fun clearLocalSession() {
+        sessionStore.clear()
+    }
 }

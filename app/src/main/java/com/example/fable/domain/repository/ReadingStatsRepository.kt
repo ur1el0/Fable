@@ -13,4 +13,5 @@ interface ReadingStatsRepository {
     ): Result<Unit>
 
     suspend fun sync(ownerId: String): Result<Unit>
+    suspend fun clearOwnerData(ownerId: String): Result<Unit>
 }

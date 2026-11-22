@@ -182,12 +182,15 @@ class FableViewModelProviderSearchTest {
 
         override fun observeCatalog(): Flow<List<Story>> = flowOf(catalog)
         override fun observeShelf(): Flow<List<Story>> = flowOf(emptyList())
+        override fun observeDownloadedStoryIds(): Flow<Set<String>> = flowOf(emptySet())
         override fun observeStory(storyId: String): Flow<Story?> = flowOf(null)
         override fun observeChapters(storyId: String): Flow<List<Chapter>> = flowOf(emptyList())
         override suspend fun refreshStories(genre: String?, search: String?) = Result.success(Unit)
         override suspend fun refreshStory(storyId: String) = Result.success(Unit)
         override suspend fun refreshChapters(storyId: String) = Result.success(Unit)
         override suspend fun refreshChapter(storyId: String, chapterNumber: Int) = Result.success(Unit)
+        override suspend fun downloadStoryForOffline(storyId: String) = Result.success(1)
+        override suspend fun removeOfflineChapters(storyId: String) = Result.success(Unit)
         override suspend fun searchGutenberg(topic: String?, search: String?) = gutenbergResult
         override suspend fun searchGutenberg(topic: String?, search: String?, sort: String?): Result<List<Story>> {
             gutenbergSorts += sort
@@ -204,6 +207,16 @@ class FableViewModelProviderSearchTest {
             content: String
         ) =
             Result.success(story("published", title, SourceProvider.FABLE_ORIGINAL))
+        override suspend fun updateStory(
+            storyId: String,
+            title: String,
+            genre: String,
+            chapterTitle: String,
+            synopsis: String,
+            content: String
+        ) = Result.success(story(storyId, title, SourceProvider.FABLE_ORIGINAL))
+        override suspend fun deleteStory(storyId: String) = Result.success(Unit)
+        override suspend fun purgeUserData(ownerId: String) = Result.success(Unit)
         override suspend fun setShelfOwner(ownerId: String?) = Unit
         override suspend fun syncShelf() = Result.success(Unit)
         override suspend fun syncShelfState(storyId: String) = Result.success(Unit)
@@ -229,6 +242,7 @@ class FableViewModelProviderSearchTest {
             isCompleted: Boolean
         ) = Result.success(Unit)
         override suspend fun sync(ownerId: String) = Result.success(Unit)
+        override suspend fun clearOwnerData(ownerId: String) = Result.success(Unit)
     }
 
     private object FakeReaderPreferencesRepository : ReaderPreferencesRepository {

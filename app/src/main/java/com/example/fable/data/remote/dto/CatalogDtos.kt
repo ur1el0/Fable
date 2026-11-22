@@ -54,6 +54,7 @@ data class StoryDto(
     val sourceProvider: String = "FABLE_ORIGINAL",
     val providerId: String? = null,
     val providerDownloadCount: Int? = null,
+    val ownerUserId: String? = null,
     val chapters: List<ChapterDto>? = null
 )
 
@@ -66,6 +67,16 @@ data class CreateStoryRequestDto(
     val chapter: String? = null,
     val readTimeMinutes: Int = 0,
     val contentFormat: String = "PROSE"
+)
+
+@Serializable
+data class UpdateStoryRequestDto(
+    val title: String? = null,
+    val genre: String? = null,
+    val chapter: String? = null,
+    val synopsis: String? = null,
+    val content: String? = null,
+    val readTimeMinutes: Int? = null
 )
 
 @Serializable

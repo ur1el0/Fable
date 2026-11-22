@@ -50,7 +50,8 @@ fun StoryDto.toDomain() = Story(
     sourceProvider = SourceProvider.fromWireValue(sourceProvider),
     providerId = providerId,
     providerDownloadCount = providerDownloadCount,
-    chapters = chapters.orEmpty().map(ChapterDto::toDomain)
+    chapters = chapters.orEmpty().map(ChapterDto::toDomain),
+    ownerUserId = ownerUserId
 )
 
 fun GenreDto.toDomain() = GenreCategory(

@@ -156,6 +156,10 @@ class AccountViewModelTest {
         override suspend fun confirmPasswordReset(token: String, newPassword: String) = Result.success(Unit)
 
         override suspend fun signOut() = Result.success(Unit)
+
+        override suspend fun deleteAccount() = Result.success(Unit)
+
+        override fun clearLocalSession() = Unit
     }
 
     private fun story(id: String) = Story(

@@ -14,4 +14,6 @@ interface AccountRepository {
     suspend fun requestPasswordReset(email: String): Result<Unit>
     suspend fun confirmPasswordReset(token: String, newPassword: String): Result<Unit>
     suspend fun signOut(): Result<Unit>
+    suspend fun deleteAccount(): Result<Unit>
+    fun clearLocalSession()
 }

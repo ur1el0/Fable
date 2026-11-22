@@ -39,7 +39,8 @@ fun StoryEntity.toDomain() = Story(
     providerId = providerId,
     providerDownloadCount = providerDownloadCount,
     lastReadChapterId = lastReadChapterId,
-    lastReadChapterNumber = lastReadChapterNumber
+    lastReadChapterNumber = lastReadChapterNumber,
+    ownerUserId = ownerUserId
 )
 
 fun StoryEntity.toDomain(shelfState: ShelfStateEntity?): Story = toDomain().copy(
@@ -96,7 +97,8 @@ fun StoryDto.toEntity(previous: StoryEntity? = null): StoryEntity = StoryEntity(
     isCompleted = previous?.isCompleted ?: isCompleted,
     lastReadChapterId = previous?.lastReadChapterId,
     lastReadChapterNumber = previous?.lastReadChapterNumber,
-    shelfUpdatedAtUtc = previous?.shelfUpdatedAtUtc ?: updatedAtUtc
+    shelfUpdatedAtUtc = previous?.shelfUpdatedAtUtc ?: updatedAtUtc,
+    ownerUserId = ownerUserId ?: previous?.ownerUserId
 )
 
 fun ChapterDto.toEntity(previous: ChapterEntity? = null) = ChapterEntity(

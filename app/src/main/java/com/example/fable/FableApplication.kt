@@ -53,7 +53,8 @@ class FableApplication : Application() {
         ).addMigrations(
             FableDatabase.MIGRATION_1_2,
             FableDatabase.MIGRATION_2_3,
-            FableDatabase.MIGRATION_3_4
+            FableDatabase.MIGRATION_3_4,
+            FableDatabase.MIGRATION_4_5
         ).build()
         sessionStore = SecureSessionStore(applicationContext)
         deviceIdentityStore = DeviceIdentityStore(applicationContext)

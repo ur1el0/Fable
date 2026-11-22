@@ -175,6 +175,15 @@ class RoomReadingStatsRepositoryTest {
             this.stats[stats.ownerId] = stats
             statsFlows.getOrPut(stats.ownerId) { MutableStateFlow(null) }.value = stats
         }
+
+        override suspend fun deleteSessionsForOwner(ownerId: String) {
+            sessions.keys.removeIf { (owner, _) -> owner == ownerId }
+        }
+
+        override suspend fun deleteStatsForOwner(ownerId: String) {
+            stats.remove(ownerId)
+            statsFlows.getOrPut(ownerId) { MutableStateFlow(null) }.value = null
+        }
     }
 
     private data class RecordedSession(

@@ -177,6 +177,7 @@ class FableViewModelChapterLoadingTest {
 
         override fun observeCatalog(): Flow<List<Story>> = flowOf(emptyList())
         override fun observeShelf(): Flow<List<Story>> = flowOf(emptyList())
+        override fun observeDownloadedStoryIds(): Flow<Set<String>> = flowOf(emptySet())
         override fun observeStory(storyId: String): Flow<Story?> = observedStory
         override fun observeChapters(storyId: String): Flow<List<Chapter>> = observedChapters
         override suspend fun refreshStories(genre: String?, search: String?) = Result.success(Unit)
@@ -186,6 +187,8 @@ class FableViewModelChapterLoadingTest {
             chapterRefreshCount += 1
             return refreshChapter()
         }
+        override suspend fun downloadStoryForOffline(storyId: String) = Result.success(1)
+        override suspend fun removeOfflineChapters(storyId: String) = Result.success(Unit)
         override suspend fun searchGutenberg(topic: String?, search: String?) =
             Result.success(emptyList<Story>())
         override suspend fun searchStandardEbooks(topic: String?, search: String?) =
@@ -199,6 +202,16 @@ class FableViewModelChapterLoadingTest {
             synopsis: String,
             content: String
         ): Result<Story> = publishError?.let { Result.failure(it) } ?: Result.success(story())
+        override suspend fun updateStory(
+            storyId: String,
+            title: String,
+            genre: String,
+            chapterTitle: String,
+            synopsis: String,
+            content: String
+        ): Result<Story> = Result.success(story())
+        override suspend fun deleteStory(storyId: String) = Result.success(Unit)
+        override suspend fun purgeUserData(ownerId: String) = Result.success(Unit)
         override suspend fun setShelfOwner(ownerId: String?) = Unit
         override suspend fun syncShelf() = Result.success(Unit)
         override suspend fun syncShelfState(storyId: String) = Result.success(Unit)
@@ -224,6 +237,7 @@ class FableViewModelChapterLoadingTest {
             isCompleted: Boolean
         ) = Result.success(Unit)
         override suspend fun sync(ownerId: String) = Result.success(Unit)
+        override suspend fun clearOwnerData(ownerId: String) = Result.success(Unit)
     }
 
     private object FakeReaderPreferencesRepository : ReaderPreferencesRepository {

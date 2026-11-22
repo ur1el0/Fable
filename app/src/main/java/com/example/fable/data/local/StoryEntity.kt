@@ -41,5 +41,6 @@ data class StoryEntity(
     val isCompleted: Boolean,
     val lastReadChapterId: String?,
     val lastReadChapterNumber: Int?,
-    val shelfUpdatedAtUtc: String
+    val shelfUpdatedAtUtc: String,
+    val ownerUserId: String? = null
 )

@@ -66,7 +66,8 @@ data class Story(
     val providerDownloadCount: Int? = null,
     val chapters: List<Chapter> = emptyList(),
     val lastReadChapterId: String? = null,
-    val lastReadChapterNumber: Int? = null
+    val lastReadChapterNumber: Int? = null,
+    val ownerUserId: String? = null
 )
 
 data class GenreCategory(

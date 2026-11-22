@@ -96,6 +96,28 @@ class ShelfStateMigrationTest {
         migrated.close()
     }
 
+    @Test
+    fun addsOwnerUserIdColumnToStoriesTable() {
+        helper.createDatabase(TEST_DATABASE, 4).apply {
+            insertStory(this, "owned-story", bookmarked = true, progress = 25, currentPage = 2)
+            close()
+        }
+
+        val migrated = helper.runMigrationsAndValidate(
+            TEST_DATABASE,
+            5,
+            true,
+            FableDatabase.MIGRATION_4_5
+        )
+        migrated.query("PRAGMA table_info(`stories`)").use { cursor ->
+            val columns = buildList {
+                while (cursor.moveToNext()) add(cursor.getString(1))
+            }
+            assertTrue("ownerUserId" in columns)
+        }
+        migrated.close()
+    }
+
     private fun insertStory(
         database: androidx.sqlite.db.SupportSQLiteDatabase,
         storyId: String,

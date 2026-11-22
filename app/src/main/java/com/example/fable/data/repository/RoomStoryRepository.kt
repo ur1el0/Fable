@@ -16,8 +16,10 @@ import com.example.fable.data.remote.dto.CreateStoryRequestDto
 import com.example.fable.data.remote.dto.ShelfSyncItemDto
 import com.example.fable.data.remote.dto.ShelfSyncRequestDto
 import com.example.fable.data.remote.dto.StoryDto
+import com.example.fable.data.remote.dto.UpdateStoryRequestDto
 import com.example.fable.data.remote.dto.toDomain
 import com.example.fable.domain.model.Chapter
+import com.example.fable.domain.model.ContentFormat
 import com.example.fable.domain.model.GenreCategory
 import com.example.fable.domain.model.Story
 import com.example.fable.domain.model.SourceProvider
@@ -67,6 +69,11 @@ class RoomStoryRepository(
                 }
             }.sortedByDescending { states[it.id]?.updatedAtUtc.orEmpty() }
         }
+
+    override fun observeDownloadedStoryIds(): Flow<Set<String>> =
+        dao.observeDownloadedStoryIds()
+            .map(List<String>::toSet)
+            .distinctUntilChanged()
 
     override fun observeStory(storyId: String): Flow<Story?> =
         combine(dao.observeStory(storyId), currentShelfStates) { entity, states ->
@@ -192,6 +199,31 @@ class RoomStoryRepository(
         }
     }
 
+    override suspend fun downloadStoryForOffline(storyId: String): Result<Int> = runCatching {
+        refreshStory(storyId).getOrThrow()
+        refreshChapters(storyId).getOrThrow()
+        val story = dao.getStory(storyId)
+        var chapters = dao.observeChapters(storyId).first()
+        if (ContentFormat.fromWireValue(story?.contentFormat.orEmpty()) != ContentFormat.MANGA) {
+            for (chapter in chapters) {
+                if (chapter.content.isBlank()) {
+                    refreshChapter(storyId, chapter.chapterNumber).getOrThrow()
+                }
+            }
+            chapters = dao.observeChapters(storyId).first()
+        }
+        val cachedCount = chapters.count { it.content.isNotBlank() || it.pageUrls.isNotEmpty() }
+        when {
+            cachedCount > 0 -> cachedCount
+            story?.content?.isNotBlank() == true -> 1
+            else -> error("No readable chapters are available to save offline.")
+        }
+    }
+
+    override suspend fun removeOfflineChapters(storyId: String): Result<Unit> = runCatching {
+        dao.clearOfflineCache(storyId)
+    }
+
     override suspend fun searchGutenberg(topic: String?, search: String?): Result<List<Story>> =
         searchGutenberg(topic, search, null)
 
@@ -242,6 +274,64 @@ class RoomStoryRepository(
         val existing = dao.getStory(remote.id)
         dao.upsertStories(listOf(remote.toEntity(existing)))
         remote.toDomain()
+    }
+
+    override suspend fun updateStory(
+        storyId: String,
+        title: String,
+        genre: String,
+        chapterTitle: String,
+        synopsis: String,
+        content: String
+    ): Result<Story> = runCatching {
+        val trimmedContent = content.trim()
+        val trimmedChapterTitle = chapterTitle.trim().ifBlank { "Chapter 1" }
+        val readTimeMinutes = (ReaderPagePacker.countWords(trimmedContent) / 200).coerceAtLeast(1)
+        val remote = api.updateStory(
+            storyId = storyId,
+            request = UpdateStoryRequestDto(
+                title = title.trim(),
+                genre = genre.trim(),
+                chapter = trimmedChapterTitle,
+                synopsis = synopsis.trim(),
+                content = trimmedContent,
+                readTimeMinutes = readTimeMinutes
+            )
+        )
+        val existing = dao.getStory(storyId)
+        val targetStoryId = remote.id.ifBlank { storyId }
+        dao.upsertStories(listOf(remote.copy(id = targetStoryId).toEntity(existing)))
+        val remoteChapters = remote.chapters.orEmpty()
+        if (remoteChapters.isNotEmpty()) {
+            val merged = mergeChapters(targetStoryId, remoteChapters)
+            dao.replaceChapters(targetStoryId, merged)
+            hydrateStoryFromChapters(targetStoryId, merged)
+        } else {
+            val existingChapterOne = dao.getChapter(targetStoryId, 1)
+            if (existingChapterOne != null) {
+                dao.upsertChapters(
+                    listOf(
+                        existingChapterOne.copy(
+                            title = remote.chapter.ifBlank { trimmedChapterTitle },
+                            content = remote.content.ifBlank { trimmedContent },
+                            wordCount = ReaderPagePacker.countWords(remote.content.ifBlank { trimmedContent })
+                        )
+                    )
+                )
+            }
+        }
+        remote.copy(id = targetStoryId).toDomain()
+    }
+
+    override suspend fun deleteStory(storyId: String): Result<Unit> = runCatching {
+        api.deleteStory(storyId)
+        dao.deleteStoryAndShelfStates(storyId)
+    }
+
+    override suspend fun purgeUserData(ownerId: String): Result<Unit> = runCatching {
+        if (ownerId.isNotBlank() && ownerId != GUEST_OWNER_ID) {
+            dao.purgeAccountData(ownerId)
+        }
     }
 
     override suspend fun setShelfOwner(ownerId: String?) {

@@ -19,6 +19,7 @@ import com.example.fable.data.remote.dto.ShelfSyncResponseDto
 import com.example.fable.data.remote.dto.ShelfSyncItemDto
 import com.example.fable.data.remote.dto.StoryDto
 import com.example.fable.data.remote.dto.UpdateFeedDto
+import com.example.fable.data.remote.dto.UpdateStoryRequestDto
 import com.example.fable.data.remote.dto.UserDto
 import com.example.fable.data.remote.dto.WriterDto
 import kotlinx.coroutines.Dispatchers
@@ -125,6 +126,12 @@ class FableApiService(
     suspend fun createStory(request: CreateStoryRequestDto): StoryDto =
         postJson(url("stories"), request, accessTokenProvider())
 
+    suspend fun updateStory(storyId: String, request: UpdateStoryRequestDto): StoryDto =
+        patchJson(url("stories", storyId), request, accessTokenProvider())
+
+    suspend fun deleteStory(storyId: String) =
+        deleteNoContent(url("stories", storyId), accessTokenProvider())
+
     suspend fun register(request: RegisterRequestDto): AuthResponseDto =
         postJson(url("auth", "register"), request)
 
@@ -147,6 +154,9 @@ class FableApiService(
 
     suspend fun updateProfile(request: ProfileUpdateRequestDto): UserDto =
         patchJson(url("auth", "me"), request, accessTokenProvider())
+
+    suspend fun deleteAccount() =
+        deleteNoContent(url("auth", "me"), accessTokenProvider())
 
     suspend fun logout() = postNoContent(url("auth", "logout"), accessTokenProvider())
 
@@ -206,6 +216,9 @@ class FableApiService(
 
     private suspend fun postNoContent(url: HttpUrl, accessToken: String?) =
         executeNoContent(Request.Builder().url(url).post(ByteArray(0).toRequestBody()), accessToken)
+
+    private suspend fun deleteNoContent(url: HttpUrl, accessToken: String?) =
+        executeNoContent(Request.Builder().url(url).delete(), accessToken)
 
     private suspend inline fun <reified B> postNoContentWithBody(
         url: HttpUrl,

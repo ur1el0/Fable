@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Upsert
 import kotlinx.coroutines.flow.Flow
 
@@ -23,4 +24,16 @@ interface ReadingStatsDao {
 
     @Upsert
     suspend fun upsertStats(stats: ReadingStatsEntity)
+
+    @Query("DELETE FROM reading_sessions WHERE ownerId = :ownerId")
+    suspend fun deleteSessionsForOwner(ownerId: String)
+
+    @Query("DELETE FROM reading_stats WHERE ownerId = :ownerId")
+    suspend fun deleteStatsForOwner(ownerId: String)
+
+    @Transaction
+    suspend fun clearOwnerData(ownerId: String) {
+        deleteSessionsForOwner(ownerId)
+        deleteStatsForOwner(ownerId)
+    }
 }

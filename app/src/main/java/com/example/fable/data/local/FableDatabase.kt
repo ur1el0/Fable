@@ -15,7 +15,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ReadingStatsEntity::class,
         WriterDraftEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = true
 )
 @TypeConverters(FableTypeConverters::class)
@@ -98,6 +98,12 @@ abstract class FableDatabase : RoomDatabase() {
                         PRIMARY KEY(`ownerId`)
                     )""".trimIndent()
                 )
+            }
+        }
+
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `stories` ADD COLUMN `ownerUserId` TEXT")
             }
         }
     }

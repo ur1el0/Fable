@@ -2,6 +2,7 @@ package com.example.fable.data.remote
 
 import com.example.fable.data.remote.dto.ShelfSyncItemDto
 import com.example.fable.data.remote.dto.ShelfSyncRequestDto
+import com.example.fable.data.remote.dto.UpdateStoryRequestDto
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -497,6 +498,90 @@ class FableApiServiceTest {
 
         val hosts = recorder.requests.map { it.url.host }
         assertEquals(listOf("10.0.2.2", "fable-api-cbo8.onrender.com"), hosts)
+    }
+
+    @Test
+    fun updateStorySendsPatchWithBearerTokenAndOnlyUpdateStoryRequestFields() = runTest {
+        val recorder = JsonResponseInterceptor(
+            body = """
+                {
+                  "id":"story-1",
+                  "title":"Revised Title",
+                  "author":"Author",
+                  "genre":"Fantasy",
+                  "chapter":"Chapter 1: Revised",
+                  "synopsis":"Updated synopsis",
+                  "content":"Updated content body",
+                  "readTimeMinutes":4,
+                  "ownerUserId":"user-1"
+                }
+            """.trimIndent()
+        )
+        val service = FableApiService(
+            baseUrl = "https://fable.test/api/v1/",
+            client = OkHttpClient.Builder().addInterceptor(recorder).build(),
+            accessTokenProvider = { "writer-token" }
+        )
+
+        val updated = service.updateStory(
+            storyId = "story-1",
+            request = UpdateStoryRequestDto(
+                title = "Revised Title",
+                genre = "Fantasy",
+                chapter = "Chapter 1: Revised",
+                synopsis = "Updated synopsis",
+                content = "Updated content body",
+                readTimeMinutes = 4
+            )
+        )
+
+        assertEquals("Revised Title", updated.title)
+        assertEquals("user-1", updated.ownerUserId)
+        val request = recorder.requests.single()
+        assertEquals("PATCH", request.method)
+        assertEquals("/api/v1/stories/story-1", request.url.encodedPath)
+        assertEquals("Bearer writer-token", request.header("Authorization"))
+        val bodyBuffer = Buffer().also { requireNotNull(request.body).writeTo(it) }
+        val payload = json.parseToJsonElement(bodyBuffer.readUtf8()).jsonObject
+        assertEquals(
+            setOf("title", "genre", "chapter", "synopsis", "content", "readTimeMinutes"),
+            payload.keys
+        )
+        assertEquals("Revised Title", payload.getValue("title").jsonPrimitive.content)
+    }
+
+    @Test
+    fun deleteStorySendsAuthenticatedDeleteAndAccepts204() = runTest {
+        val recorder = JsonResponseInterceptor(statusCode = 204, body = "")
+        val service = FableApiService(
+            baseUrl = "https://fable.test/api/v1/",
+            client = OkHttpClient.Builder().addInterceptor(recorder).build(),
+            accessTokenProvider = { "writer-token" }
+        )
+
+        service.deleteStory("story-1")
+
+        val request = recorder.requests.single()
+        assertEquals("DELETE", request.method)
+        assertEquals("/api/v1/stories/story-1", request.url.encodedPath)
+        assertEquals("Bearer writer-token", request.header("Authorization"))
+    }
+
+    @Test
+    fun deleteAccountSendsAuthenticatedDeleteToAuthMe() = runTest {
+        val recorder = JsonResponseInterceptor(statusCode = 204, body = "")
+        val service = FableApiService(
+            baseUrl = "https://fable.test/api/v1/",
+            client = OkHttpClient.Builder().addInterceptor(recorder).build(),
+            accessTokenProvider = { "account-token" }
+        )
+
+        service.deleteAccount()
+
+        val request = recorder.requests.single()
+        assertEquals("DELETE", request.method)
+        assertEquals("/api/v1/auth/me", request.url.encodedPath)
+        assertEquals("Bearer account-token", request.header("Authorization"))
     }
 
     private fun service(interceptor: JsonResponseInterceptor) = FableApiService(

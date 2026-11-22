@@ -10,12 +10,15 @@ import kotlinx.coroutines.flow.Flow
 interface StoryRepository {
     fun observeCatalog(): Flow<List<Story>>
     fun observeShelf(): Flow<List<Story>>
+    fun observeDownloadedStoryIds(): Flow<Set<String>>
     fun observeStory(storyId: String): Flow<Story?>
     fun observeChapters(storyId: String): Flow<List<Chapter>>
     suspend fun refreshStories(genre: String? = null, search: String? = null): Result<Unit>
     suspend fun refreshStory(storyId: String): Result<Unit>
     suspend fun refreshChapters(storyId: String): Result<Unit>
     suspend fun refreshChapter(storyId: String, chapterNumber: Int): Result<Unit>
+    suspend fun downloadStoryForOffline(storyId: String): Result<Int>
+    suspend fun removeOfflineChapters(storyId: String): Result<Unit>
     suspend fun searchGutenberg(topic: String? = null, search: String? = null): Result<List<Story>>
     suspend fun searchGutenberg(
         topic: String? = null,
@@ -31,6 +34,16 @@ interface StoryRepository {
         synopsis: String,
         content: String
     ): Result<Story>
+    suspend fun updateStory(
+        storyId: String,
+        title: String,
+        genre: String,
+        chapterTitle: String,
+        synopsis: String,
+        content: String
+    ): Result<Story>
+    suspend fun deleteStory(storyId: String): Result<Unit>
+    suspend fun purgeUserData(ownerId: String): Result<Unit>
     suspend fun setShelfOwner(ownerId: String?)
     suspend fun syncShelf(): Result<Unit>
     suspend fun syncShelfState(storyId: String): Result<Unit>
