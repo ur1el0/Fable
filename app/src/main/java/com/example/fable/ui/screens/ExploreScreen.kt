@@ -50,6 +50,7 @@ import com.example.fable.ui.components.StoryRow
 fun ExploreScreen(
     modifier: Modifier = Modifier,
     stories: List<Story> = emptyList(),
+    offlineStoryIds: Set<String> = emptySet(),
     providerStories: List<Story> = emptyList(),
     genres: List<GenreCategory> = emptyList(),
     writers: List<Writer> = emptyList(),
@@ -270,7 +271,12 @@ fun ExploreScreen(
             }
         } else {
             items(filtered, key = Story::id) { story ->
-                StoryRow(story, onClick = { onStorySelected(story) }, onToggleBookmark = { onToggleBookmark(story) })
+                StoryRow(
+                    story = story,
+                    onClick = { onStorySelected(story) },
+                    onToggleBookmark = { onToggleBookmark(story) },
+                    isAvailableOffline = story.id in offlineStoryIds
+                )
             }
         }
     }

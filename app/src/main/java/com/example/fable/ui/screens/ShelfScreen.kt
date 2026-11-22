@@ -28,6 +28,7 @@ import com.example.fable.ui.components.StoryRow
 fun ShelfScreen(
     modifier: Modifier = Modifier,
     stories: List<Story> = emptyList(),
+    offlineStoryIds: Set<String> = emptySet(),
     readingStats: ReadingStats = ReadingStats(),
     showReadingStats: Boolean = false,
     onStorySelected: (Story) -> Unit = {},
@@ -92,7 +93,12 @@ fun ShelfScreen(
             }
         } else {
             items(visibleStories, key = Story::id) { story ->
-                StoryRow(story, onClick = { onStorySelected(story) }, onToggleBookmark = { onToggleBookmark(story) })
+                StoryRow(
+                    story = story,
+                    onClick = { onStorySelected(story) },
+                    onToggleBookmark = { onToggleBookmark(story) },
+                    isAvailableOffline = story.id in offlineStoryIds
+                )
             }
         }
     }

@@ -57,6 +57,7 @@ import java.util.Locale
 fun LibraryScreen(
     modifier: Modifier = Modifier,
     stories: List<Story> = emptyList(),
+    offlineStoryIds: Set<String> = emptySet(),
     genres: List<GenreCategory> = emptyList(),
     updateFeed: UpdateFeed? = null,
     isRefreshing: Boolean = false,
@@ -152,14 +153,24 @@ fun LibraryScreen(
         if (continueReading.isNotEmpty()) {
             item { SectionTitle("Continue reading") }
             items(continueReading, key = Story::id) { story ->
-                StoryRow(story, onClick = { onStorySelected(story) }, onToggleBookmark = { onToggleBookmark(story) })
+                StoryRow(
+                    story = story,
+                    onClick = { onStorySelected(story) },
+                    onToggleBookmark = { onToggleBookmark(story) },
+                    isAvailableOffline = story.id in offlineStoryIds
+                )
             }
         }
 
         if (recent.isNotEmpty()) {
             item { SectionTitle("Recent stories") }
             items(recent.take(8), key = Story::id) { story ->
-                StoryRow(story, onClick = { onStorySelected(story) }, onToggleBookmark = { onToggleBookmark(story) })
+                StoryRow(
+                    story = story,
+                    onClick = { onStorySelected(story) },
+                    onToggleBookmark = { onToggleBookmark(story) },
+                    isAvailableOffline = story.id in offlineStoryIds
+                )
             }
         }
     }

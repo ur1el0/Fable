@@ -1,7 +1,6 @@
 package com.example.fable.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -10,12 +9,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.ArrowDropDown
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -35,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import com.example.fable.domain.model.GenreCategory
 import com.example.fable.domain.model.WriterDraft
 import com.example.fable.domain.reading.ReaderPagePacker
+import com.example.fable.ui.components.GenreInputField
 import com.example.fable.ui.viewmodel.WriterDraftUiState
 
 @Composable
@@ -102,44 +99,14 @@ fun WriteScreen(
                 )
             }
             item {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedTextField(
-                        draft.genre,
-                        { onDraftChanged(draft.copy(genre = it.take(50))) },
-                        modifier = Modifier.weight(1f),
-                        enabled = !draftState.isDiscarding,
-                        label = { Text("Genre") },
-                        singleLine = true
-                    )
-                    if (availableGenres.isNotEmpty()) {
-                        Box {
-                            IconButton(
-                                onClick = { showGenreMenu = true },
-                                enabled = !draftState.isDiscarding
-                            ) {
-                                Icon(
-                                    Icons.Outlined.ArrowDropDown,
-                                    contentDescription = "Choose genre"
-                                )
-                            }
-                            DropdownMenu(
-                                expanded = showGenreMenu && isDraftReady && !draftState.isDiscarding,
-                                onDismissRequest = { showGenreMenu = false }
-                            ) {
-                                availableGenres.forEach { genre ->
-                                    DropdownMenuItem(
-                                        text = { Text(genre) },
-                                        enabled = !draftState.isDiscarding,
-                                        onClick = {
-                                            onDraftChanged(draft.copy(genre = genre))
-                                            showGenreMenu = false
-                                        }
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
+                GenreInputField(
+                    genre = draft.genre,
+                    availableGenres = availableGenres,
+                    enabled = !draftState.isDiscarding,
+                    expanded = showGenreMenu && isDraftReady,
+                    onExpandedChange = { showGenreMenu = it },
+                    onGenreChange = { onDraftChanged(draft.copy(genre = it)) }
+                )
             }
             item {
                 OutlinedTextField(

@@ -44,6 +44,7 @@ import com.example.fable.ui.navigation.FableDestination
 import com.example.fable.ui.navigation.FableNavBackStack
 import com.example.fable.ui.navigation.FableTab
 import com.example.fable.ui.screens.AccountScreen
+import com.example.fable.ui.screens.EditStoryScreen
 import com.example.fable.ui.screens.ExploreScreen
 import com.example.fable.ui.screens.LibraryScreen
 import com.example.fable.ui.screens.PublishConfirmationSheet
@@ -104,7 +105,6 @@ fun FableApp(modifier: Modifier = Modifier) {
     val exploreState by exploreViewModel.uiState.collectAsStateWithLifecycle()
     val readerState by readerViewModel.uiState.collectAsStateWithLifecycle()
     val editorState by storyEditorViewModel.uiState.collectAsStateWithLifecycle()
-    @Suppress("UNUSED_VARIABLE")
     val serverConfigState by serverConfigViewModel.uiState.collectAsStateWithLifecycle()
     val accountState by accountViewModel.uiState.collectAsStateWithLifecycle()
 
@@ -136,6 +136,18 @@ fun FableApp(modifier: Modifier = Modifier) {
         }
     }
 
+    val deleteStoryById: (String) -> Unit = { storyId ->
+        storyEditorViewModel.deleteStory(storyId) {
+            accountViewModel.removePublishedStoryLocally(storyId)
+            accountViewModel.refreshPublishedStories()
+            if (readerState.selectedStory?.id == storyId) readerViewModel.closeStory()
+            navBackStack = navBackStack.popStory(storyId)
+            snackbarScope.launch {
+                snackbarHostState.showSnackbar("Story deleted.")
+            }
+        }
+    }
+
     LaunchedEffect(accountState.localAccountId) {
         catalogViewModel.setShelfOwner(accountState.localAccountId)
         readerViewModel.setActiveOwner(accountState.localAccountId)
@@ -160,6 +172,14 @@ fun FableApp(modifier: Modifier = Modifier) {
                 }
             }
             FableDestination.Account -> Unit
+        }
+    }
+
+    LaunchedEffect(editorState.editErrorMessage, navBackStack.current) {
+        val message = editorState.editErrorMessage ?: return@LaunchedEffect
+        if (navBackStack.current !is FableDestination.EditStory) {
+            snackbarHostState.showSnackbar(message)
+            storyEditorViewModel.clearEditState()
         }
     }
 
@@ -197,12 +217,71 @@ fun FableApp(modifier: Modifier = Modifier) {
                 onStorySelected = { story ->
                     readerViewModel.openStory(story)
                     navBackStack = navBackStack.openStory(story.id)
-                }
+                },
+                onDeleteAccount = {
+                    accountViewModel.deleteAccount { deletedUserId ->
+                        application.storyRepository.purgeUserData(deletedUserId)
+                        application.readingStatsRepository.clearOwnerData(deletedUserId)
+                        application.writerDraftRepository.clear(deletedUserId)
+                        readerState.selectedStory?.let { currentStory ->
+                            if (currentStory.ownerUserId == deletedUserId) {
+                                readerViewModel.closeStory()
+                                navBackStack = navBackStack.popStory(currentStory.id)
+                            }
+                        }
+                        snackbarScope.launch {
+                            snackbarHostState.showSnackbar("Account deleted.")
+                        }
+                    }
+                },
+                onEditStory = { story ->
+                    storyEditorViewModel.beginEditing(story)
+                    navBackStack = navBackStack.openEditStory(story.id)
+                },
+                onDeleteStory = { story -> deleteStoryById(story.id) },
+                serverConfigState = serverConfigState,
+                onApplyServerUrl = { rawUrl ->
+                    serverConfigViewModel.applyBaseUrl(rawUrl) {
+                        accountViewModel.clearSessionForServerSwitch()
+                        catalogViewModel.refreshCatalog()
+                    }
+                },
+                onResetServerUrl = {
+                    serverConfigViewModel.resetToDefault {
+                        accountViewModel.clearSessionForServerSwitch()
+                        catalogViewModel.refreshCatalog()
+                    }
+                },
+                onTestServerHealth = serverConfigViewModel::testConnection
             )
-            is FableDestination.EditStory -> LoadingDestinationScaffold(
+            is FableDestination.EditStory -> EditStoryScreen(
                 modifier = Modifier.padding(innerPadding),
-                title = "Edit story",
-                onBack = handleBack
+                story = editorState.editingStory?.takeIf { it.id == destination.storyId },
+                isLoading = editorState.isLoadingEditStory,
+                isSaving = editorState.isSavingEdit,
+                isDeleting = editorState.isDeletingStory,
+                errorMessage = editorState.editErrorMessage,
+                genres = catalogState.genres,
+                onBack = handleBack,
+                onRetryLoad = { storyEditorViewModel.beginEditingById(destination.storyId) },
+                onSave = { title, genre, chapterTitle, synopsis, content ->
+                    storyEditorViewModel.updateStory(
+                        storyId = destination.storyId,
+                        title = title,
+                        genre = genre,
+                        chapterTitle = chapterTitle,
+                        synopsis = synopsis,
+                        content = content
+                    ) {
+                        accountViewModel.refreshPublishedStories()
+                        navBackStack = navBackStack.popBack()
+                        storyEditorViewModel.clearEditState()
+                        snackbarScope.launch {
+                            snackbarHostState.showSnackbar("Story updated.")
+                        }
+                    }
+                },
+                onDelete = { deleteStoryById(destination.storyId) }
             )
             is FableDestination.Reader -> {
                 val activeStory = readerState.selectedStory?.takeIf { it.id == destination.storyId }
@@ -245,6 +324,10 @@ fun FableApp(modifier: Modifier = Modifier) {
                         onBack = handleBack
                     )
                 } else {
+                    val isOwned = accountState.user != null && (
+                        activeStory.ownerUserId == accountState.user?.id ||
+                            accountState.publishedStories.any { it.id == activeStory.id }
+                        )
                     StoryDetailScreen(
                         modifier = Modifier.padding(innerPadding),
                         story = activeStory,
@@ -260,7 +343,17 @@ fun FableApp(modifier: Modifier = Modifier) {
                             val resolvedChapter = readerViewModel.startReading(chapter)
                             navBackStack = navBackStack.openReader(destination.storyId, resolvedChapter)
                         },
-                        onToggleBookmark = { catalogViewModel.toggleBookmark(activeStory) }
+                        onToggleBookmark = { catalogViewModel.toggleBookmark(activeStory) },
+                        isOwnedByCurrentUser = isOwned,
+                        isDownloadingOffline = readerState.isDownloadingOffline,
+                        offlineMessage = readerState.offlineMessage,
+                        onDownloadOffline = readerViewModel::downloadStoryForOffline,
+                        onRemoveOfflineDownload = readerViewModel::removeOfflineDownload,
+                        onEditStory = {
+                            storyEditorViewModel.beginEditing(activeStory)
+                            navBackStack = navBackStack.openEditStory(activeStory.id)
+                        },
+                        onDeleteStory = { deleteStoryById(activeStory.id) }
                     )
                 }
             }
@@ -268,6 +361,7 @@ fun FableApp(modifier: Modifier = Modifier) {
                 FableTab.LIBRARY -> LibraryScreen(
                     modifier = Modifier.padding(innerPadding),
                     stories = catalogState.stories,
+                    offlineStoryIds = catalogState.offlineStoryIds,
                     genres = catalogState.genres,
                     updateFeed = catalogState.updateFeed,
                     isRefreshing = catalogState.isRefreshing,
@@ -283,6 +377,7 @@ fun FableApp(modifier: Modifier = Modifier) {
                 FableTab.EXPLORE -> ExploreScreen(
                     modifier = Modifier.padding(innerPadding),
                     stories = catalogState.stories,
+                    offlineStoryIds = catalogState.offlineStoryIds,
                     providerStories = exploreState.providerStories,
                     genres = catalogState.genres,
                     writers = catalogState.writers,
@@ -325,6 +420,7 @@ fun FableApp(modifier: Modifier = Modifier) {
                 FableTab.SHELF -> ShelfScreen(
                     modifier = Modifier.padding(innerPadding),
                     stories = catalogState.shelfStories,
+                    offlineStoryIds = catalogState.offlineStoryIds,
                     readingStats = catalogState.readingStats,
                     showReadingStats = accountState.user != null,
                     onStorySelected = { story ->
