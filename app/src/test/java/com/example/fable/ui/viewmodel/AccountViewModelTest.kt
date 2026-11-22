@@ -130,12 +130,70 @@ class AccountViewModelTest {
         }
     }
 
+    @Test
+    fun deleteAccountInvokesCleanupCallbackAndClearsSessionOnlyOnSuccess() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val repository = FakeAccountRepository(
+                loadStories = { Result.success(listOf(story("owned-story"))) },
+                deleteAccountResult = Result.failure(IllegalStateException("Server unavailable"))
+            )
+            val viewModel = AccountViewModel(repository)
+            viewModel.signIn("reader@example.com", "password")
+            advanceUntilIdle()
+
+            var purgedUserId: String? = null
+            viewModel.deleteAccount { purgedUserId = it }
+            advanceUntilIdle()
+
+            assertNull(purgedUserId)
+            assertEquals("account-1", viewModel.uiState.value.user?.id)
+            assertEquals("Server unavailable", viewModel.uiState.value.errorMessage)
+
+            repository.nextDeleteAccountResult = Result.success(Unit)
+            viewModel.deleteAccount { purgedUserId = it }
+            advanceUntilIdle()
+
+            assertEquals("account-1", purgedUserId)
+            assertNull(viewModel.uiState.value.user)
+            assertNull(viewModel.uiState.value.localAccountId)
+            assertEquals("Account deleted.", viewModel.uiState.value.noticeMessage)
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test
+    fun clearSessionForServerSwitchResetsSignedInAccount() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val repository = FakeAccountRepository(loadStories = { Result.success(emptyList()) })
+            val viewModel = AccountViewModel(repository)
+            viewModel.signIn("reader@example.com", "password")
+            advanceUntilIdle()
+
+            viewModel.clearSessionForServerSwitch()
+
+            assertEquals(1, repository.clearedLocalSessions)
+            assertNull(viewModel.uiState.value.user)
+            assertNull(viewModel.uiState.value.localAccountId)
+            assertEquals("Server updated. Sign in to sync your account.", viewModel.uiState.value.noticeMessage)
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
     private class FakeAccountRepository(
         private val loadStories: suspend () -> Result<List<Story>>,
         private val currentUserResult: suspend () -> Result<UserProfile> = { Result.success(USER) },
         private val hasStoredSession: Boolean = false,
-        private val storedAccountId: String? = null
+        private val storedAccountId: String? = null,
+        deleteAccountResult: Result<Unit> = Result.success(Unit)
     ) : AccountRepository {
+        var nextDeleteAccountResult: Result<Unit> = deleteAccountResult
+        var clearedLocalSessions = 0
+            private set
+
         override fun hasSession() = hasStoredSession
 
         override fun currentAccountId() = storedAccountId
@@ -157,9 +215,11 @@ class AccountViewModelTest {
 
         override suspend fun signOut() = Result.success(Unit)
 
-        override suspend fun deleteAccount() = Result.success(Unit)
+        override suspend fun deleteAccount() = nextDeleteAccountResult
 
-        override fun clearLocalSession() = Unit
+        override fun clearLocalSession() {
+            clearedLocalSessions += 1
+        }
     }
 
     private fun story(id: String) = Story(

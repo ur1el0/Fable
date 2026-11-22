@@ -24,47 +24,10 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
-class FableViewModelChapterLoadingTest {
-    @Test
-    fun publishCallbackRunsOnlyAfterRepositorySuccess() = runTest {
-        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
-        try {
-            val repository = FakeStoryRepository(chapters = emptyList())
-            val viewModel = viewModel(repository)
-            advanceUntilIdle()
-            var callbackCalled = false
-
-            viewModel.publishStory("Title", "Fantasy", "Chapter 1", "Synopsis", "Text") {
-                callbackCalled = true
-            }
-            advanceUntilIdle()
-            assertTrue(callbackCalled)
-            assertEquals("story-1", viewModel.uiState.value.publishedStory?.id)
-            assertNull(viewModel.uiState.value.selectedStory)
-
-            viewModel.dismissPublishedStory()
-            assertNull(viewModel.uiState.value.publishedStory)
-
-            repository.publishError = IllegalStateException("offline")
-            callbackCalled = false
-            viewModel.publishStory("Title", "Fantasy", "Chapter 1", "Synopsis", "Text") {
-                callbackCalled = true
-            }
-            advanceUntilIdle()
-
-            assertFalse(callbackCalled)
-            assertNull(viewModel.uiState.value.publishedStory)
-            assertEquals("offline", viewModel.uiState.value.publishErrorMessage)
-        } finally {
-            Dispatchers.resetMain()
-        }
-    }
-
+class ReaderViewModelTest {
     @Test
     fun coalescesConcurrentRequestsForTheSameChapter() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
@@ -76,7 +39,6 @@ class FableViewModelChapterLoadingTest {
                 release.await()
             }
             val viewModel = viewModel(repository)
-            advanceUntilIdle()
             viewModel.openStory(story())
             advanceUntilIdle()
 
@@ -99,7 +61,6 @@ class FableViewModelChapterLoadingTest {
         try {
             val repository = FakeStoryRepository(chapters = listOf(chapter(content = "Cached text")))
             val viewModel = viewModel(repository)
-            advanceUntilIdle()
             viewModel.openStory(story())
             advanceUntilIdle()
 
@@ -122,7 +83,6 @@ class FableViewModelChapterLoadingTest {
                 initialStory = story
             )
             val viewModel = viewModel(repository)
-            advanceUntilIdle()
             viewModel.openStory(story)
             advanceUntilIdle()
 
@@ -145,7 +105,6 @@ class FableViewModelChapterLoadingTest {
                 initialStory = metadataOnlyStory
             )
             val viewModel = viewModel(repository)
-            advanceUntilIdle()
             viewModel.openStory(metadataOnlyStory)
             advanceUntilIdle()
 
@@ -158,7 +117,33 @@ class FableViewModelChapterLoadingTest {
         }
     }
 
-    private fun viewModel(repository: StoryRepository) = FableViewModel(
+    @Test
+    fun downloadForOfflineAndRemoveUpdateStatusMessages() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val repository = FakeStoryRepository(
+                chapters = listOf(chapter(content = "Body")),
+                downloadResult = Result.success(3)
+            )
+            val viewModel = viewModel(repository)
+            viewModel.openStory(story())
+            advanceUntilIdle()
+
+            viewModel.downloadStoryForOffline()
+            advanceUntilIdle()
+            assertFalse(viewModel.uiState.value.isDownloadingOffline)
+            assertEquals("Saved 3 chapters for offline reading.", viewModel.uiState.value.offlineMessage)
+
+            viewModel.removeOfflineDownload()
+            advanceUntilIdle()
+            assertEquals("Removed offline chapters.", viewModel.uiState.value.offlineMessage)
+            assertEquals(listOf("story-1"), repository.removedOfflineStories)
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
+    private fun viewModel(repository: StoryRepository) = ReaderViewModel(
         repository = repository,
         readingStatsRepository = FakeReadingStatsRepository,
         readerPreferencesRepository = FakeReaderPreferencesRepository
@@ -167,13 +152,14 @@ class FableViewModelChapterLoadingTest {
     private class FakeStoryRepository(
         chapters: List<Chapter>,
         initialStory: Story = story(),
+        private val downloadResult: Result<Int> = Result.success(1),
         private val refreshChapter: suspend () -> Result<Unit> = { Result.success(Unit) }
     ) : StoryRepository {
         private val observedStory = MutableStateFlow<Story?>(initialStory)
         private val observedChapters = MutableStateFlow(chapters)
         var chapterRefreshCount = 0
             private set
-        var publishError: Throwable? = null
+        val removedOfflineStories = mutableListOf<String>()
 
         override fun observeCatalog(): Flow<List<Story>> = flowOf(emptyList())
         override fun observeShelf(): Flow<List<Story>> = flowOf(emptyList())
@@ -187,21 +173,21 @@ class FableViewModelChapterLoadingTest {
             chapterRefreshCount += 1
             return refreshChapter()
         }
-        override suspend fun downloadStoryForOffline(storyId: String) = Result.success(1)
-        override suspend fun removeOfflineChapters(storyId: String) = Result.success(Unit)
-        override suspend fun searchGutenberg(topic: String?, search: String?) =
-            Result.success(emptyList<Story>())
-        override suspend fun searchStandardEbooks(topic: String?, search: String?) =
-            Result.success(emptyList<Story>())
-        override suspend fun searchManga(search: String?, limit: Int, offset: Int) =
-            Result.success(emptyList<Story>())
+        override suspend fun downloadStoryForOffline(storyId: String) = downloadResult
+        override suspend fun removeOfflineChapters(storyId: String): Result<Unit> {
+            removedOfflineStories += storyId
+            return Result.success(Unit)
+        }
+        override suspend fun searchGutenberg(topic: String?, search: String?) = Result.success(emptyList<Story>())
+        override suspend fun searchStandardEbooks(topic: String?, search: String?) = Result.success(emptyList<Story>())
+        override suspend fun searchManga(search: String?, limit: Int, offset: Int) = Result.success(emptyList<Story>())
         override suspend fun publishStory(
             title: String,
             genre: String,
             chapterTitle: String,
             synopsis: String,
             content: String
-        ): Result<Story> = publishError?.let { Result.failure(it) } ?: Result.success(story())
+        ) = Result.failure<Story>(UnsupportedOperationException())
         override suspend fun updateStory(
             storyId: String,
             title: String,
@@ -209,7 +195,7 @@ class FableViewModelChapterLoadingTest {
             chapterTitle: String,
             synopsis: String,
             content: String
-        ): Result<Story> = Result.success(story())
+        ) = Result.failure<Story>(UnsupportedOperationException())
         override suspend fun deleteStory(storyId: String) = Result.success(Unit)
         override suspend fun purgeUserData(ownerId: String) = Result.success(Unit)
         override suspend fun setShelfOwner(ownerId: String?) = Unit

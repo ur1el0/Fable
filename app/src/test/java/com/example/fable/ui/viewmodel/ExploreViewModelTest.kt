@@ -2,15 +2,11 @@ package com.example.fable.ui.viewmodel
 
 import com.example.fable.domain.model.Chapter
 import com.example.fable.domain.model.GenreCategory
-import com.example.fable.domain.model.ReaderPreferences
-import com.example.fable.domain.model.ReadingStats
 import com.example.fable.domain.model.SourceProvider
 import com.example.fable.domain.model.Story
 import com.example.fable.domain.model.StoryCatalog
 import com.example.fable.domain.model.UpdateFeed
 import com.example.fable.domain.model.Writer
-import com.example.fable.domain.repository.ReaderPreferencesRepository
-import com.example.fable.domain.repository.ReadingStatsRepository
 import com.example.fable.domain.repository.StoryRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -24,20 +20,15 @@ import kotlinx.coroutines.test.setMain
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertNull
 import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
-class FableViewModelProviderSearchTest {
+class ExploreViewModelTest {
     @Test
     fun keepsMatchingCachedProviderStoriesWhenSearchFails() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         try {
-            val cached = story(
-                id = "gutenberg-11",
-                title = "Alice's Adventures",
-                provider = SourceProvider.GUTENBERG
-            )
+            val cached = story("gutenberg-11", "Alice's Adventures", SourceProvider.GUTENBERG)
             val repository = FakeStoryRepository(
                 catalog = listOf(
                     cached,
@@ -46,7 +37,7 @@ class FableViewModelProviderSearchTest {
                 ),
                 gutenbergResult = Result.failure(IllegalStateException("Provider unavailable"))
             )
-            val viewModel = viewModel(repository)
+            val viewModel = ExploreViewModel(repository)
             advanceUntilIdle()
 
             viewModel.searchProvider(StoryCatalog.GUTENBERG, " alice ")
@@ -73,7 +64,7 @@ class FableViewModelProviderSearchTest {
                 catalog = listOf(cached),
                 gutenbergResult = Result.success(listOf(result))
             )
-            val viewModel = viewModel(repository)
+            val viewModel = ExploreViewModel(repository)
             advanceUntilIdle()
 
             viewModel.searchProvider(StoryCatalog.GUTENBERG, "Alice")
@@ -92,22 +83,14 @@ class FableViewModelProviderSearchTest {
     fun searchesStandardEbooksAndPreservesCachedEditionOnFailure() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         try {
-            val cachedSe = story(
-                id = "se-dracula",
-                title = "Dracula",
-                provider = SourceProvider.STANDARD_EBOOKS
-            )
-            val cachedGutenberg = story(
-                id = "gutenberg-345",
-                title = "Dracula",
-                provider = SourceProvider.GUTENBERG
-            )
+            val cachedSe = story("se-dracula", "Dracula", SourceProvider.STANDARD_EBOOKS)
+            val cachedGutenberg = story("gutenberg-345", "Dracula", SourceProvider.GUTENBERG)
             val repository = FakeStoryRepository(
                 catalog = listOf(cachedSe, cachedGutenberg),
                 gutenbergResult = Result.success(listOf(cachedGutenberg)),
                 standardEbooksResult = Result.failure(IllegalStateException("Standard Ebooks unavailable"))
             )
-            val viewModel = viewModel(repository)
+            val viewModel = ExploreViewModel(repository)
             advanceUntilIdle()
 
             viewModel.searchProvider(StoryCatalog.STANDARD_EBOOKS, "Dracula")
@@ -125,26 +108,6 @@ class FableViewModelProviderSearchTest {
     }
 
     @Test
-    fun refreshCatalogIsolatesExternalProviderPrewarmFailuresFromGlobalErrorBanner() = runTest {
-        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
-        try {
-            val repository = FakeStoryRepository(
-                catalog = emptyList(),
-                gutenbergResult = Result.failure(IllegalStateException("Gutenberg down")),
-                standardEbooksResult = Result.failure(IllegalStateException("Standard Ebooks down"))
-            )
-            val viewModel = viewModel(repository)
-            advanceUntilIdle()
-
-            val state = viewModel.uiState.value
-            assertFalse(state.isRefreshing)
-            assertNull(state.errorMessage)
-        } finally {
-            Dispatchers.resetMain()
-        }
-    }
-
-    @Test
     fun searchProviderForwardsValidGutenbergSortAndDefaultsInvalidSortToCatalog() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         try {
@@ -152,7 +115,7 @@ class FableViewModelProviderSearchTest {
                 catalog = emptyList(),
                 gutenbergResult = Result.success(emptyList())
             )
-            val viewModel = viewModel(repository)
+            val viewModel = ExploreViewModel(repository)
             advanceUntilIdle()
             repository.gutenbergSorts.clear()
 
@@ -166,12 +129,6 @@ class FableViewModelProviderSearchTest {
             Dispatchers.resetMain()
         }
     }
-
-    private fun viewModel(repository: StoryRepository) = FableViewModel(
-        repository = repository,
-        readingStatsRepository = FakeReadingStatsRepository,
-        readerPreferencesRepository = FakeReaderPreferencesRepository
-    )
 
     private class FakeStoryRepository(
         private val catalog: List<Story>,
@@ -197,16 +154,14 @@ class FableViewModelProviderSearchTest {
             return gutenbergResult
         }
         override suspend fun searchStandardEbooks(topic: String?, search: String?) = standardEbooksResult
-        override suspend fun searchManga(search: String?, limit: Int, offset: Int) =
-            Result.success(emptyList<Story>())
+        override suspend fun searchManga(search: String?, limit: Int, offset: Int) = Result.success(emptyList<Story>())
         override suspend fun publishStory(
             title: String,
             genre: String,
             chapterTitle: String,
             synopsis: String,
             content: String
-        ) =
-            Result.success(story("published", title, SourceProvider.FABLE_ORIGINAL))
+        ) = Result.failure<Story>(UnsupportedOperationException())
         override suspend fun updateStory(
             storyId: String,
             title: String,
@@ -214,7 +169,7 @@ class FableViewModelProviderSearchTest {
             chapterTitle: String,
             synopsis: String,
             content: String
-        ) = Result.success(story(storyId, title, SourceProvider.FABLE_ORIGINAL))
+        ) = Result.failure<Story>(UnsupportedOperationException())
         override suspend fun deleteStory(storyId: String) = Result.success(Unit)
         override suspend fun purgeUserData(ownerId: String) = Result.success(Unit)
         override suspend fun setShelfOwner(ownerId: String?) = Unit
@@ -231,23 +186,6 @@ class FableViewModelProviderSearchTest {
         override suspend fun fetchGenres(): List<GenreCategory> = emptyList()
         override suspend fun fetchTopAuthors(): List<Writer> = emptyList()
         override suspend fun refreshUpdateFeed(): Result<UpdateFeed> = Result.success(UpdateFeed())
-    }
-
-    private object FakeReadingStatsRepository : ReadingStatsRepository {
-        override fun observeStats(ownerId: String): Flow<ReadingStats> = flowOf(ReadingStats())
-        override suspend fun recordSession(
-            ownerId: String,
-            storyId: String,
-            secondsRead: Int,
-            isCompleted: Boolean
-        ) = Result.success(Unit)
-        override suspend fun sync(ownerId: String) = Result.success(Unit)
-        override suspend fun clearOwnerData(ownerId: String) = Result.success(Unit)
-    }
-
-    private object FakeReaderPreferencesRepository : ReaderPreferencesRepository {
-        override fun read() = ReaderPreferences()
-        override fun save(preferences: ReaderPreferences) = Unit
     }
 
     private companion object {

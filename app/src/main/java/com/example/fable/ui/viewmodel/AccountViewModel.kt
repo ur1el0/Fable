@@ -175,6 +175,39 @@ class AccountViewModel(
         }
     }
 
+    fun deleteAccount(onDeleted: suspend (String) -> Unit = {}) {
+        val deletedUserId = mutableUiState.value.user?.id ?: return
+        viewModelScope.launch {
+            beginRequest()
+            repository.deleteAccount().fold(
+                onSuccess = {
+                    runCatching { onDeleted(deletedUserId) }
+                    mutableUiState.value = AccountUiState(noticeMessage = "Account deleted.")
+                },
+                onFailure = { error ->
+                    if (error is FableApiException && error.statusCode == 401) {
+                        mutableUiState.value = AccountUiState(
+                            errorMessage = "Your session expired. Sign in again."
+                        )
+                    } else {
+                        finishWithError(error)
+                    }
+                }
+            )
+        }
+    }
+
+    fun clearSessionForServerSwitch() {
+        repository.clearLocalSession()
+        mutableUiState.value = AccountUiState(noticeMessage = "Server updated. Sign in to sync your account.")
+    }
+
+    fun removePublishedStoryLocally(storyId: String) {
+        mutableUiState.update { state ->
+            state.copy(publishedStories = state.publishedStories.filterNot { it.id == storyId })
+        }
+    }
+
     fun clearFeedback() {
         mutableUiState.update { it.copy(errorMessage = null, noticeMessage = null) }
     }
