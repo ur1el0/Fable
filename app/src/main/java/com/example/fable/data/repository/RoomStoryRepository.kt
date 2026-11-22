@@ -87,12 +87,21 @@ class RoomStoryRepository(
         val existing = dao.getStory(storyId)
         val provider = SourceProvider.fromWireValue(existing?.sourceProvider.orEmpty())
         val gutenbergId = resolveGutenbergId(existing, storyId)
-        if (existing != null && (provider == SourceProvider.GUTENBERG || gutenbergId != null)) {
+        if (
+            existing != null && (
+                provider == SourceProvider.GUTENBERG ||
+                    gutenbergId != null ||
+                    (provider == SourceProvider.STANDARD_EBOOKS && existing.synopsis.isNotBlank())
+                )
+        ) {
             return@runCatching
         }
         val remote = when {
             provider == SourceProvider.GUTENBERG || gutenbergId != null ->
                 gutenbergId?.let { api.fetchGutenbergStory(it) } ?: api.fetchStory(storyId)
+            provider == SourceProvider.STANDARD_EBOOKS ->
+                existing?.providerId?.takeIf(String::isNotBlank)?.let { api.fetchStandardEbooksStory(it) }
+                    ?: api.fetchStory(storyId)
             provider == SourceProvider.MANGADEX ->
                 existing?.providerId?.let { mangaApi().fetchMangaStory(it) }
                     ?: throw FableApiException(0, "MangaDex identifier is missing from the saved story.")
@@ -120,6 +129,9 @@ class RoomStoryRepository(
         val remoteChapters = when {
             provider == SourceProvider.GUTENBERG || gutenbergId != null ->
                 gutenbergId?.let { api.fetchGutenbergChapters(it) } ?: api.fetchChapters(storyId)
+            provider == SourceProvider.STANDARD_EBOOKS ->
+                story?.providerId?.takeIf(String::isNotBlank)?.let { api.fetchStandardEbooksChapters(it) }
+                    ?: api.fetchChapters(storyId)
             provider == SourceProvider.MANGADEX ->
                 story?.providerId?.let { mangaApi().fetchMangaChapters(it, limit = 50) }
                     ?: throw FableApiException(0, "MangaDex identifier is missing from the saved story.")
@@ -141,6 +153,17 @@ class RoomStoryRepository(
         when {
             (provider == SourceProvider.GUTENBERG || gutenbergId != null) && gutenbergId != null -> {
                 val remoteChapters = api.fetchGutenbergChapters(gutenbergId)
+                if (remoteChapters.none { it.chapterNumber == chapterNumber }) {
+                    error("Chapter $chapterNumber is not available.")
+                }
+                val chapters = mergeChapters(storyId, remoteChapters)
+                dao.replaceChapters(storyId, chapters)
+                hydrateStoryFromChapters(storyId, chapters)
+            }
+            provider == SourceProvider.STANDARD_EBOOKS -> {
+                val bookId = story?.providerId?.takeIf(String::isNotBlank)
+                    ?: throw FableApiException(0, "Standard Ebooks identifier is missing from the saved story.")
+                val remoteChapters = api.fetchStandardEbooksChapters(bookId)
                 if (remoteChapters.none { it.chapterNumber == chapterNumber }) {
                     error("Chapter $chapterNumber is not available.")
                 }
@@ -173,6 +196,12 @@ class RoomStoryRepository(
 
     override suspend fun searchGutenberg(topic: String?, search: String?, sort: String?): Result<List<Story>> = runCatching {
         val remote = api.fetchGutenbergStories(topic = topic, search = search, sort = sort)
+        val persisted = persistStories(remote)
+        persisted.map { it.toDomain() }
+    }
+
+    override suspend fun searchStandardEbooks(topic: String?, search: String?): Result<List<Story>> = runCatching {
+        val remote = api.fetchStandardEbooksStories(topic = topic, search = search)
         val persisted = persistStories(remote)
         persisted.map { it.toDomain() }
     }

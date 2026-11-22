@@ -22,6 +22,7 @@ interface StoryRepository {
         search: String? = null,
         sort: String?
     ): Result<List<Story>> = searchGutenberg(topic, search)
+    suspend fun searchStandardEbooks(topic: String? = null, search: String? = null): Result<List<Story>>
     suspend fun searchManga(search: String? = null, limit: Int = 20, offset: Int = 0): Result<List<Story>>
     suspend fun publishStory(
         title: String,

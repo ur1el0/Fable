@@ -75,7 +75,12 @@ fun StoryDetailScreen(
             Text(story.title, style = MaterialTheme.typography.headlineMedium, fontFamily = FontFamily.Serif)
             Text(story.author, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(
-                "${story.genre}  ·  ${story.readTimeMinutes.coerceAtLeast(1)} min read  ·  ${story.contentFormat.name.lowercase().replaceFirstChar(Char::uppercase)}",
+                listOfNotNull(
+                    story.sourceProvider.displayName,
+                    story.genre.takeIf(String::isNotBlank),
+                    "${story.readTimeMinutes.coerceAtLeast(1)} min read",
+                    story.contentFormat.name.lowercase().replaceFirstChar(Char::uppercase)
+                ).joinToString("  ·  "),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

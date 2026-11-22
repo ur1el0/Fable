@@ -133,7 +133,10 @@ class FableViewModel(
         val cachedStories = cachedProviderStories(catalog, query).let { stories ->
             when (sort) {
                 "popular" -> stories.sortedByDescending { it.providerDownloadCount ?: 0 }
-                "recent" -> stories.sortedByDescending(Story::isRecentSubmission)
+                "recent" -> stories.sortedWith(
+                    compareByDescending<Story> { it.isRecentSubmission }
+                        .thenByDescending { it.updatedAtUtc.ifBlank { it.createdAtUtc } }
+                )
                 else -> stories
             }
         }
@@ -149,6 +152,7 @@ class FableViewModel(
                     search = normalizedQuery,
                     sort = sort?.takeIf { it in GUTENBERG_SORT_OPTIONS } ?: "catalog"
                 )
+                StoryCatalog.STANDARD_EBOOKS -> repository.searchStandardEbooks(search = normalizedQuery)
                 StoryCatalog.MANGA -> repository.searchManga(search = normalizedQuery)
             }
             result.fold(
@@ -174,6 +178,7 @@ class FableViewModel(
         val provider = when (catalog) {
             StoryCatalog.FABLE -> return emptyList()
             StoryCatalog.GUTENBERG -> SourceProvider.GUTENBERG
+            StoryCatalog.STANDARD_EBOOKS -> SourceProvider.STANDARD_EBOOKS
             StoryCatalog.MANGA -> SourceProvider.MANGADEX
         }
         val normalizedQuery = query.trim().take(200)
