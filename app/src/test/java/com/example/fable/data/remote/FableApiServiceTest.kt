@@ -125,6 +125,93 @@ class FableApiServiceTest {
     }
 
     @Test
+    fun fetchStandardEbooksStoriesBuildsVersionedQueryAndDecodesResponse() = runTest {
+        val recorder = JsonResponseInterceptor(
+            body = """
+                [
+                  {
+                    "id":"4e39ab55-d25a-52a0-ad55-832f2fc8da8e",
+                    "title":"Dracula",
+                    "author":"Bram Stoker",
+                    "genre":"Horror",
+                    "contentFormat":"PROSE",
+                    "sourceProvider":"STANDARD_EBOOKS",
+                    "providerId":"bram-stoker/dracula"
+                  }
+                ]
+            """.trimIndent()
+        )
+        val service = service(recorder)
+
+        val stories = service.fetchStandardEbooksStories(topic = "fiction", search = "Dracula")
+
+        val story = stories.single()
+        assertEquals("4e39ab55-d25a-52a0-ad55-832f2fc8da8e", story.id)
+        assertEquals("STANDARD_EBOOKS", story.sourceProvider)
+        assertEquals("bram-stoker/dracula", story.providerId)
+        val request = recorder.requests.single()
+        assertEquals("GET", request.method)
+        assertEquals("/api/v1/public/standard-ebooks", request.url.encodedPath)
+        assertEquals("fiction", request.url.queryParameter("topic"))
+        assertEquals("Dracula", request.url.queryParameter("search"))
+    }
+
+    @Test
+    fun fetchStandardEbooksStorySendsBookIdQueryParameterAndDecodesStory() = runTest {
+        val recorder = JsonResponseInterceptor(
+            body = """
+                {
+                  "id":"4e39ab55-d25a-52a0-ad55-832f2fc8da8e",
+                  "title":"Dracula",
+                  "author":"Bram Stoker",
+                  "genre":"Horror",
+                  "synopsis":"Count Dracula moves to England.",
+                  "contentFormat":"PROSE",
+                  "sourceProvider":"STANDARD_EBOOKS",
+                  "providerId":"bram-stoker/dracula"
+                }
+            """.trimIndent()
+        )
+        val service = service(recorder)
+
+        val story = service.fetchStandardEbooksStory("bram-stoker/dracula")
+
+        assertEquals("Count Dracula moves to England.", story.synopsis)
+        val request = recorder.requests.single()
+        assertEquals("GET", request.method)
+        assertEquals("/api/v1/public/standard-ebooks/story", request.url.encodedPath)
+        assertEquals("bram-stoker/dracula", request.url.queryParameter("book_id"))
+    }
+
+    @Test
+    fun fetchStandardEbooksChaptersSendsBookIdQueryParameterAndDecodesChapters() = runTest {
+        val recorder = JsonResponseInterceptor(
+            body = """
+                [
+                  {
+                    "id":"chap-1",
+                    "storyId":"4e39ab55-d25a-52a0-ad55-832f2fc8da8e",
+                    "chapterNumber":1,
+                    "title":"I: Harker's Journal",
+                    "content":"Left Munich at dusk.",
+                    "wordCount":120
+                  }
+                ]
+            """.trimIndent()
+        )
+        val service = service(recorder)
+
+        val chapters = service.fetchStandardEbooksChapters("bram-stoker/dracula")
+
+        assertEquals(1, chapters.size)
+        assertEquals("I: Harker's Journal", chapters.single().title)
+        val request = recorder.requests.single()
+        assertEquals("GET", request.method)
+        assertEquals("/api/v1/public/standard-ebooks/chapters", request.url.encodedPath)
+        assertEquals("bram-stoker/dracula", request.url.queryParameter("book_id"))
+    }
+
+    @Test
     fun fetchChapterRequestsSingleStoryChapterOnDemand() = runTest {
         val recorder = JsonResponseInterceptor(
             body = """

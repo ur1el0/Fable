@@ -56,4 +56,38 @@ class ExploreScreenTest {
             searchRequests
         )
     }
+
+    @Test
+    fun selectingStandardEbooksChipSearchesStandardEbooksCatalog() {
+        val searchRequests = mutableListOf<Triple<StoryCatalog, String, String?>>()
+        val standardEbook = Story(
+            id = "se-dracula",
+            title = "Dracula",
+            author = "Bram Stoker",
+            genre = "Horror",
+            synopsis = "Standard Ebooks edition",
+            content = "",
+            sourceProvider = SourceProvider.STANDARD_EBOOKS,
+            providerId = "bram-stoker/dracula"
+        )
+
+        composeRule.setContent {
+            FableTheme {
+                ExploreScreen(
+                    providerStories = listOf(standardEbook),
+                    onSearchProvider = { catalog, query, sort ->
+                        searchRequests += Triple(catalog, query, sort)
+                    }
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Standard Ebooks").performClick()
+        composeRule.onNodeWithText("Dracula").assertIsDisplayed()
+
+        assertEquals(
+            listOf(Triple(StoryCatalog.STANDARD_EBOOKS, "", null)),
+            searchRequests
+        )
+    }
 }

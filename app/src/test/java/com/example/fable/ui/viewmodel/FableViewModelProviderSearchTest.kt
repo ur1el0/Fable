@@ -87,6 +87,42 @@ class FableViewModelProviderSearchTest {
         }
     }
 
+    @Test
+    fun searchesStandardEbooksAndPreservesCachedEditionOnFailure() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val cachedSe = story(
+                id = "se-dracula",
+                title = "Dracula",
+                provider = SourceProvider.STANDARD_EBOOKS
+            )
+            val cachedGutenberg = story(
+                id = "gutenberg-345",
+                title = "Dracula",
+                provider = SourceProvider.GUTENBERG
+            )
+            val repository = FakeStoryRepository(
+                catalog = listOf(cachedSe, cachedGutenberg),
+                gutenbergResult = Result.success(listOf(cachedGutenberg)),
+                standardEbooksResult = Result.failure(IllegalStateException("Standard Ebooks unavailable"))
+            )
+            val viewModel = viewModel(repository)
+            advanceUntilIdle()
+
+            viewModel.searchProvider(StoryCatalog.STANDARD_EBOOKS, "Dracula")
+            assertEquals(listOf(cachedSe), viewModel.uiState.value.providerStories)
+
+            advanceUntilIdle()
+
+            val state = viewModel.uiState.value
+            assertEquals(listOf(cachedSe), state.providerStories)
+            assertFalse(state.isSearchingProvider)
+            assertEquals("Standard Ebooks unavailable", state.providerErrorMessage)
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
     private fun viewModel(repository: StoryRepository) = FableViewModel(
         repository = repository,
         readingStatsRepository = FakeReadingStatsRepository,
@@ -95,7 +131,8 @@ class FableViewModelProviderSearchTest {
 
     private class FakeStoryRepository(
         private val catalog: List<Story>,
-        private val gutenbergResult: Result<List<Story>>
+        private val gutenbergResult: Result<List<Story>>,
+        private val standardEbooksResult: Result<List<Story>> = Result.success(emptyList())
     ) : StoryRepository {
         override fun observeCatalog(): Flow<List<Story>> = flowOf(catalog)
         override fun observeShelf(): Flow<List<Story>> = flowOf(emptyList())
@@ -106,6 +143,7 @@ class FableViewModelProviderSearchTest {
         override suspend fun refreshChapters(storyId: String) = Result.success(Unit)
         override suspend fun refreshChapter(storyId: String, chapterNumber: Int) = Result.success(Unit)
         override suspend fun searchGutenberg(topic: String?, search: String?) = gutenbergResult
+        override suspend fun searchStandardEbooks(topic: String?, search: String?) = standardEbooksResult
         override suspend fun searchManga(search: String?, limit: Int, offset: Int) =
             Result.success(emptyList<Story>())
         override suspend fun publishStory(
