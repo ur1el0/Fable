@@ -1,6 +1,7 @@
 package com.example.fable.ui.screens
 
 import android.os.SystemClock
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -136,15 +137,32 @@ fun StoryReaderScreen(
         }
     }
 
+    val topPadding by animateDpAsState(
+        targetValue = if (isChromeVisible) {
+            if (errorMessage == null) 64.dp else 104.dp
+        } else {
+            12.dp
+        },
+        label = "readerTopPadding"
+    )
+    val bottomPadding by animateDpAsState(
+        targetValue = if (isChromeVisible) 80.dp else 12.dp,
+        label = "readerBottomPadding"
+    )
+
     Box(modifier.fillMaxSize().background(palette.background)) {
         key(
             story.id,
             if (story.contentFormat == ContentFormat.MANGA || readerPreferences.layout == ReaderLayout.PAGINATED) chapterNumber else 0,
             readerPreferences.mangaReadingMode
         ) {
-            val readerModifier = Modifier
-                .fillMaxSize()
-                .padding(top = if (errorMessage == null) 64.dp else 104.dp, bottom = 80.dp)
+            val readerModifier = if (story.contentFormat == ContentFormat.MANGA) {
+                Modifier.fillMaxSize()
+            } else {
+                Modifier
+                    .fillMaxSize()
+                    .padding(top = topPadding, bottom = bottomPadding)
+            }
             if (story.contentFormat == ContentFormat.MANGA) {
                 MangaChapterReader(
                     story = story,
@@ -236,6 +254,7 @@ private fun ReaderChapterContent(
         if (!paginated) {
             value = emptyList()
         } else {
+            value = null
             val packedPages = withContext(Dispatchers.Default) {
                 ReaderPagePacker.chunkIntoPages(content, readerPreferences.fontScalePercent)
             }
@@ -249,6 +268,9 @@ private fun ReaderChapterContent(
             chapterNumber = chapterNumber,
             totalChapters = chapterTotal
         )
+    }
+    var trackedChapterProgress by remember(story.id, chapterNumber) {
+        mutableIntStateOf(restoredChapterProgress)
     }
     val latestOnToggleChrome by rememberUpdatedState(onToggleChrome)
     val pagerScope = rememberCoroutineScope()
@@ -269,79 +291,89 @@ private fun ReaderChapterContent(
 
     if (paginated) {
         val readyPages = pages
-        if (readyPages == null) {
+        if (readyPages.isNullOrEmpty()) {
             Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
             }
             return
         }
-        val pagerState = rememberPagerState(
-            initialPage = ReaderProgressMapper.pageIndexForProgress(restoredChapterProgress, readyPages.size),
-            pageCount = { readyPages.size }
-        )
-        val pagerTapModifier = modifier.pointerInput(pagerState, readyPages.size) {
-            detectTapGestures { offset ->
-                val targetPage = when {
-                    offset.x < size.width * TAP_ZONE_WIDTH_FRACTION -> pagerState.currentPage - 1
-                    offset.x > size.width * (1f - TAP_ZONE_WIDTH_FRACTION) -> pagerState.currentPage + 1
-                    else -> null
-                }
-                if (targetPage == null) {
-                    latestOnToggleChrome()
-                } else if (targetPage in readyPages.indices) {
-                    pagerScope.launch { pagerState.animateScrollToPage(targetPage) }
+        key(story.id, chapterNumber, readyPages) {
+            val pagerState = rememberPagerState(
+                initialPage = ReaderProgressMapper.pageIndexForProgress(
+                    trackedChapterProgress,
+                    readyPages.size
+                ),
+                pageCount = { readyPages.size }
+            )
+            val pagerTapModifier = modifier.pointerInput(pagerState, readyPages.size) {
+                detectTapGestures { offset ->
+                    val targetPage = when {
+                        offset.x < size.width * TAP_ZONE_WIDTH_FRACTION -> pagerState.currentPage - 1
+                        offset.x > size.width * (1f - TAP_ZONE_WIDTH_FRACTION) -> pagerState.currentPage + 1
+                        else -> null
+                    }
+                    if (targetPage == null) {
+                        latestOnToggleChrome()
+                    } else if (targetPage in readyPages.indices) {
+                        pagerScope.launch { pagerState.animateScrollToPage(targetPage) }
+                    }
                 }
             }
-        }
-        LaunchedEffect(pagerState, chapterNumber, chapterTotal, readyPages.size) {
-            snapshotFlow { pagerState.currentPage }
-                .distinctUntilChanged()
-                .drop(1)
-                .collect { page ->
-                    val chapterProgress = (page + 1f) / readyPages.size
-                    val overallProgress = (
-                        ((chapterNumber - 1).coerceAtLeast(0) + chapterProgress) / chapterTotal * 100
-                        ).roundToInt().coerceIn(1, 100)
-                    onSaveProgress(overallProgress, chapterNumber)
-                }
-        }
+            LaunchedEffect(pagerState, chapterNumber, chapterTotal, readyPages.size) {
+                snapshotFlow { pagerState.currentPage }
+                    .distinctUntilChanged()
+                    .drop(1)
+                    .collect { page ->
+                        val chapterProgressPercent = ((page + 1f) * 100f / readyPages.size)
+                            .roundToInt()
+                            .coerceIn(0, 100)
+                        trackedChapterProgress = chapterProgressPercent
+                        val overallProgress = ReaderProgressMapper.overallProgressPercent(
+                            chapterProgressPercent = chapterProgressPercent,
+                            chapterNumber = chapterNumber,
+                            totalChapters = chapterTotal
+                        )
+                        onSaveProgress(overallProgress, chapterNumber)
+                    }
+            }
 
-        HorizontalPager(
-            state = pagerState,
-            modifier = pagerTapModifier,
-            key = { it }
-        ) { page ->
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 24.dp, vertical = 20.dp),
-                verticalArrangement = Arrangement.spacedBy(18.dp)
-            ) {
-                Text(
-                    "Page ${page + 1} of ${readyPages.size}",
-                    modifier = Modifier.fillMaxWidth(),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = palette.foreground.copy(alpha = 0.84f),
-                    textAlign = TextAlign.End
-                )
-                if (page == 0) {
+            HorizontalPager(
+                state = pagerState,
+                modifier = pagerTapModifier,
+                key = { it }
+            ) { page ->
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 24.dp, vertical = 20.dp),
+                    verticalArrangement = Arrangement.spacedBy(18.dp)
+                ) {
                     Text(
-                        chapter?.title ?: story.chapter.ifBlank { "Chapter $chapterNumber" },
+                        "Page ${page + 1} of ${readyPages.size}",
+                        modifier = Modifier.fillMaxWidth(),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = palette.foreground.copy(alpha = 0.84f),
+                        textAlign = TextAlign.End
+                    )
+                    if (page == 0) {
+                        Text(
+                            chapter?.title ?: story.chapter.ifBlank { "Chapter $chapterNumber" },
+                            fontFamily = fontFamily,
+                            fontSize = readerPreferences.scaledFontSize(28f).sp,
+                            lineHeight = readerPreferences.scaledLineHeight(34f, 28f).sp,
+                            color = palette.foreground
+                        )
+                    }
+                    Text(
+                        readyPages[page],
                         fontFamily = fontFamily,
-                        fontSize = readerPreferences.scaledFontSize(28f).sp,
-                        lineHeight = readerPreferences.scaledLineHeight(34f, 28f).sp,
+                        fontSize = readerPreferences.scaledFontSize(18f).sp,
+                        lineHeight = readerPreferences.scaledLineHeight(31f, 18f).sp,
                         color = palette.foreground
                     )
+                    Spacer(Modifier.height(12.dp))
                 }
-                Text(
-                    readyPages[page],
-                    fontFamily = fontFamily,
-                    fontSize = readerPreferences.scaledFontSize(18f).sp,
-                    lineHeight = readerPreferences.scaledLineHeight(31f, 18f).sp,
-                    color = palette.foreground
-                )
-                Spacer(Modifier.height(12.dp))
             }
         }
     } else {

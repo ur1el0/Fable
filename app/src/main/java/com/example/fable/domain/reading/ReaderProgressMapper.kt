@@ -42,4 +42,23 @@ object ReaderProgressMapper {
             .roundToInt()
             .coerceIn(0, scrollRange)
     }
+
+    fun webtoonProgressPercent(
+        firstVisibleIndex: Int,
+        firstVisibleOffset: Int,
+        firstVisibleSize: Int,
+        viewportStartOffset: Int,
+        canScrollForward: Boolean,
+        pageCount: Int
+    ): Int? {
+        if (pageCount <= 0) return null
+        if (!canScrollForward) return 100
+        val itemSize = firstVisibleSize.coerceAtLeast(1)
+        val pageFraction = (viewportStartOffset - firstVisibleOffset)
+            .coerceIn(0, itemSize)
+            .toFloat() / itemSize
+        return (((firstVisibleIndex.coerceIn(0, pageCount - 1) + pageFraction) / pageCount) * 100f)
+            .roundToInt()
+            .coerceIn(0, 100)
+    }
 }
