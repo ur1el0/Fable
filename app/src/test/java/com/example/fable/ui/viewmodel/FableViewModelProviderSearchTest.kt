@@ -24,6 +24,7 @@ import kotlinx.coroutines.test.setMain
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -123,6 +124,49 @@ class FableViewModelProviderSearchTest {
         }
     }
 
+    @Test
+    fun refreshCatalogIsolatesExternalProviderPrewarmFailuresFromGlobalErrorBanner() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val repository = FakeStoryRepository(
+                catalog = emptyList(),
+                gutenbergResult = Result.failure(IllegalStateException("Gutenberg down")),
+                standardEbooksResult = Result.failure(IllegalStateException("Standard Ebooks down"))
+            )
+            val viewModel = viewModel(repository)
+            advanceUntilIdle()
+
+            val state = viewModel.uiState.value
+            assertFalse(state.isRefreshing)
+            assertNull(state.errorMessage)
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test
+    fun searchProviderForwardsValidGutenbergSortAndDefaultsInvalidSortToCatalog() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val repository = FakeStoryRepository(
+                catalog = emptyList(),
+                gutenbergResult = Result.success(emptyList())
+            )
+            val viewModel = viewModel(repository)
+            advanceUntilIdle()
+            repository.gutenbergSorts.clear()
+
+            viewModel.searchProvider(StoryCatalog.GUTENBERG, "Alice", "popular")
+            advanceUntilIdle()
+            viewModel.searchProvider(StoryCatalog.GUTENBERG, "Alice", "unsupported")
+            advanceUntilIdle()
+
+            assertEquals(listOf<String?>("popular", "catalog"), repository.gutenbergSorts)
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
     private fun viewModel(repository: StoryRepository) = FableViewModel(
         repository = repository,
         readingStatsRepository = FakeReadingStatsRepository,
@@ -134,6 +178,8 @@ class FableViewModelProviderSearchTest {
         private val gutenbergResult: Result<List<Story>>,
         private val standardEbooksResult: Result<List<Story>> = Result.success(emptyList())
     ) : StoryRepository {
+        val gutenbergSorts = mutableListOf<String?>()
+
         override fun observeCatalog(): Flow<List<Story>> = flowOf(catalog)
         override fun observeShelf(): Flow<List<Story>> = flowOf(emptyList())
         override fun observeStory(storyId: String): Flow<Story?> = flowOf(null)
@@ -143,6 +189,10 @@ class FableViewModelProviderSearchTest {
         override suspend fun refreshChapters(storyId: String) = Result.success(Unit)
         override suspend fun refreshChapter(storyId: String, chapterNumber: Int) = Result.success(Unit)
         override suspend fun searchGutenberg(topic: String?, search: String?) = gutenbergResult
+        override suspend fun searchGutenberg(topic: String?, search: String?, sort: String?): Result<List<Story>> {
+            gutenbergSorts += sort
+            return gutenbergResult
+        }
         override suspend fun searchStandardEbooks(topic: String?, search: String?) = standardEbooksResult
         override suspend fun searchManga(search: String?, limit: Int, offset: Int) =
             Result.success(emptyList<Story>())

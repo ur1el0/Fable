@@ -1,5 +1,6 @@
 package com.example.fable.ui.viewmodel
 
+import com.example.fable.data.remote.FableApiException
 import com.example.fable.domain.model.Story
 import com.example.fable.domain.model.UserProfile
 import com.example.fable.domain.repository.AccountRepository
@@ -81,8 +82,57 @@ class AccountViewModelTest {
         }
     }
 
+    @Test
+    fun unauthorizedProfileRefreshClearsStoredLocalAccountAndUser() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val viewModel = AccountViewModel(
+                FakeAccountRepository(
+                    loadStories = { Result.success(emptyList()) },
+                    currentUserResult = { Result.failure(FableApiException(401, "Invalid token")) },
+                    hasStoredSession = true,
+                    storedAccountId = "account-1"
+                )
+            )
+            advanceUntilIdle()
+
+            assertNull(viewModel.uiState.value.user)
+            assertNull(viewModel.uiState.value.localAccountId)
+            assertEquals(emptyList<Story>(), viewModel.uiState.value.publishedStories)
+            assertEquals("Your session expired. Sign in again.", viewModel.uiState.value.errorMessage)
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test
+    fun refreshPublishedStoriesReloadsStoriesForSignedInUser() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val stories = mutableListOf(story("first-story"))
+            val viewModel = AccountViewModel(
+                FakeAccountRepository(loadStories = { Result.success(stories.toList()) })
+            )
+            viewModel.signIn("reader@example.com", "password")
+            advanceUntilIdle()
+            assertEquals(listOf(story("first-story")), viewModel.uiState.value.publishedStories)
+
+            stories += story("second-story")
+            viewModel.refreshPublishedStories()
+            advanceUntilIdle()
+
+            assertEquals(
+                listOf(story("first-story"), story("second-story")),
+                viewModel.uiState.value.publishedStories
+            )
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
     private class FakeAccountRepository(
         private val loadStories: suspend () -> Result<List<Story>>,
+        private val currentUserResult: suspend () -> Result<UserProfile> = { Result.success(USER) },
         private val hasStoredSession: Boolean = false,
         private val storedAccountId: String? = null
     ) : AccountRepository {
@@ -90,7 +140,7 @@ class AccountViewModelTest {
 
         override fun currentAccountId() = storedAccountId
 
-        override suspend fun currentUser() = Result.success(USER)
+        override suspend fun currentUser() = currentUserResult()
 
         override suspend fun myStories() = loadStories()
 
