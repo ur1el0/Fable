@@ -86,7 +86,8 @@ fun FableApp(modifier: Modifier = Modifier) {
         factory = ReaderViewModel.Factory(
             application.storyRepository,
             application.readingStatsRepository,
-            application.readerPreferencesRepository
+            application.readerPreferencesRepository,
+            application.highlightRepository
         )
     )
     val storyEditorViewModel: StoryEditorViewModel = viewModel(
@@ -139,6 +140,7 @@ fun FableApp(modifier: Modifier = Modifier) {
 
     val deleteStoryById: (String) -> Unit = { storyId ->
         storyEditorViewModel.deleteStory(storyId) {
+            application.highlightRepository.clearStoryHighlights(storyId)
             accountViewModel.removePublishedStoryLocally(storyId)
             accountViewModel.refreshPublishedStories()
             if (readerState.selectedStory?.id == storyId) readerViewModel.closeStory()
@@ -225,6 +227,7 @@ fun FableApp(modifier: Modifier = Modifier) {
                         application.storyRepository.purgeUserData(deletedUserId)
                         application.readingStatsRepository.clearOwnerData(deletedUserId)
                         application.writerDraftRepository.clear(deletedUserId)
+                        application.highlightRepository.clearOwnerData(deletedUserId)
                         readerState.selectedStory?.let { currentStory ->
                             if (currentStory.ownerUserId == deletedUserId) {
                                 readerViewModel.closeStory()
@@ -313,7 +316,14 @@ fun FableApp(modifier: Modifier = Modifier) {
                         onReadingSessionEnded = readerViewModel::recordReadingSession,
                         onReaderPreferencesChanged = readerViewModel::updateReaderPreferences,
                         onResetReaderPreferences = readerViewModel::resetReaderPreferences,
-                        onEnsureChapterLoaded = readerViewModel::ensureChapterLoaded
+                        onEnsureChapterLoaded = readerViewModel::ensureChapterLoaded,
+                        highlights = readerState.highlights,
+                        inBookSearchQuery = readerState.inBookSearchQuery,
+                        inBookSearchMatches = readerState.inBookSearchMatches,
+                        activeSearchHighlightTerm = readerState.activeSearchHighlightTerm,
+                        onSearchQueryChange = readerViewModel::updateInBookSearchQuery,
+                        onSaveHighlight = readerViewModel::saveHighlight,
+                        onDeleteHighlight = readerViewModel::deleteHighlight
                     )
                 }
             }

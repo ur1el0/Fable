@@ -118,6 +118,40 @@ class ShelfStateMigrationTest {
         migrated.close()
     }
 
+    @Test
+    fun createsStoryHighlightsTable() {
+        helper.createDatabase(TEST_DATABASE, 5).close()
+
+        val migrated = helper.runMigrationsAndValidate(
+            TEST_DATABASE,
+            6,
+            true,
+            FableDatabase.MIGRATION_5_6
+        )
+        migrated.query("PRAGMA table_info(`story_highlights`)").use { cursor ->
+            val columns = buildList {
+                while (cursor.moveToNext()) add(cursor.getString(1))
+            }
+            assertEquals(
+                listOf(
+                    "id",
+                    "ownerId",
+                    "storyId",
+                    "chapterNumber",
+                    "paragraphIndex",
+                    "startOffset",
+                    "endOffset",
+                    "selectedText",
+                    "note",
+                    "color",
+                    "createdAtUtc"
+                ),
+                columns
+            )
+        }
+        migrated.close()
+    }
+
     private fun insertStory(
         database: androidx.sqlite.db.SupportSQLiteDatabase,
         storyId: String,

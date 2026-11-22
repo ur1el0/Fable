@@ -4,6 +4,7 @@ import android.os.SystemClock
 import android.view.WindowManager
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,12 +13,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
@@ -28,19 +27,20 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -50,24 +50,48 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.fable.domain.model.Chapter
 import com.example.fable.domain.model.ContentFormat
+import com.example.fable.domain.model.HighlightColor
 import com.example.fable.domain.model.ReaderLayout
 import com.example.fable.domain.model.ReaderPreferences
 import com.example.fable.domain.model.Story
+import com.example.fable.domain.model.StoryHighlight
+import com.example.fable.domain.reading.HighlightExporter
+import com.example.fable.domain.reading.InBookSearchEngine
+import com.example.fable.domain.reading.InBookSearchMatch
 import com.example.fable.domain.reading.ReaderPagePacker
 import com.example.fable.domain.reading.ReaderProgressMapper
 import com.example.fable.ui.screens.components.ContinuousChapterList
+import com.example.fable.ui.screens.components.PassageHighlightEditorSheet
+import com.example.fable.ui.screens.components.QuoteCardExporter
+import com.example.fable.ui.screens.components.QuoteCardShareSheet
+import com.example.fable.ui.screens.components.ReaderHighlightsSheet
+import com.example.fable.ui.screens.components.ReaderSearchSheet
+import com.example.fable.ui.screens.components.buildHighlightedParagraph
 import com.example.fable.ui.theme.findActivity
 import com.example.fable.ui.theme.readerPalette
 import com.example.fable.ui.theme.scaledFontSize
 import com.example.fable.ui.theme.scaledLineHeight
 import com.example.fable.ui.theme.toFontFamily
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
+
+private data class HighlightEditorTarget(
+    val chapterNumber: Int,
+    val paragraphIndex: Int,
+    val paragraphText: String,
+    val existingHighlight: StoryHighlight? = null
+)
+
+private data class QuoteCardTarget(
+    val quoteText: String,
+    val note: String?,
+    val color: HighlightColor,
+    val chapterNumber: Int?
+)
 
 @Composable
 fun StoryReaderScreen(
@@ -83,8 +107,26 @@ fun StoryReaderScreen(
     onReaderPreferencesChanged: (ReaderPreferences) -> Unit,
     onResetReaderPreferences: () -> Unit,
     onEnsureChapterLoaded: (Int) -> Unit = {},
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    highlights: List<StoryHighlight> = emptyList(),
+    inBookSearchQuery: String = "",
+    inBookSearchMatches: List<InBookSearchMatch> = emptyList(),
+    activeSearchHighlightTerm: String? = null,
+    onSearchQueryChange: (String) -> Unit = {},
+    onSaveHighlight: (
+        chapterNumber: Int,
+        paragraphIndex: Int,
+        startOffset: Int,
+        endOffset: Int,
+        selectedText: String,
+        note: String,
+        color: HighlightColor,
+        existingId: String?
+    ) -> Unit = { _, _, _, _, _, _, _, _ -> },
+    onDeleteHighlight: (String) -> Unit = {}
 ) {
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
     val latestStory by rememberUpdatedState(story)
     val latestOnReadingSessionEnded by rememberUpdatedState(onReadingSessionEnded)
@@ -92,11 +134,17 @@ fun StoryReaderScreen(
     var isSessionActive by remember(story.id) { mutableStateOf(true) }
     var isChromeVisible by rememberSaveable(story.id) { mutableStateOf(true) }
     var isDisplayOptionsOpen by rememberSaveable { mutableStateOf(false) }
+    var isSearchOpen by rememberSaveable { mutableStateOf(false) }
+    var isHighlightsOpen by rememberSaveable { mutableStateOf(false) }
+    var activeHighlightEditor by remember { mutableStateOf<HighlightEditorTarget?>(null) }
+    var activeQuoteCard by remember { mutableStateOf<QuoteCardTarget?>(null) }
     var visibleChapterNumber by remember(story.id) { mutableIntStateOf(chapterNumber) }
     val continuousListState = rememberLazyListState()
+
     LaunchedEffect(story.id, chapterNumber, readerPreferences.layout) {
         if (readerPreferences.layout == ReaderLayout.SCROLL) visibleChapterNumber = chapterNumber
     }
+
     val requestedChapter = chapters.firstOrNull { it.chapterNumber == chapterNumber }
     val activeChapterNumber = if (readerPreferences.layout == ReaderLayout.SCROLL) {
         visibleChapterNumber
@@ -155,6 +203,20 @@ fun StoryReaderScreen(
         label = "readerBottomPadding"
     )
 
+    val openHighlightEditorForParagraph: (Int, Int, String) -> Unit = { chapNum, paraIdx, paraText ->
+        if (paraText.isNotBlank()) {
+            val existing = highlights.firstOrNull {
+                it.chapterNumber == chapNum && it.paragraphIndex == paraIdx
+            }
+            activeHighlightEditor = HighlightEditorTarget(
+                chapterNumber = chapNum,
+                paragraphIndex = paraIdx,
+                paragraphText = paraText,
+                existingHighlight = existing
+            )
+        }
+    }
+
     Box(modifier.fillMaxSize().background(palette.background)) {
         key(
             story.id,
@@ -198,11 +260,14 @@ fun StoryReaderScreen(
                     content = content,
                     readerPreferences = readerPreferences,
                     palette = palette,
+                    highlights = highlights,
+                    searchHighlightQuery = activeSearchHighlightTerm,
                     onSaveProgress = onSaveProgress,
                     listState = continuousListState,
                     onEnsureChapterLoaded = onEnsureChapterLoaded,
                     onActiveChapterChanged = { visibleChapterNumber = it },
                     onToggleChrome = { isChromeVisible = !isChromeVisible },
+                    onLongPressParagraph = openHighlightEditorForParagraph,
                     modifier = readerModifier
                 )
             }
@@ -224,7 +289,10 @@ fun StoryReaderScreen(
             onNextChapter = {
                 chapters.getOrNull(activeChapterIndex + 1)?.let { onSelectChapter(it.chapterNumber) }
             },
-            onFinish = { onSaveProgress(100, activeChapterNumber) }
+            onFinish = { onSaveProgress(100, activeChapterNumber) },
+            showProseTools = story.contentFormat != ContentFormat.MANGA,
+            onOpenSearch = { isSearchOpen = true },
+            onOpenHighlights = { isHighlightsOpen = true }
         )
     }
 
@@ -236,6 +304,123 @@ fun StoryReaderScreen(
             onPreferencesChanged = onReaderPreferencesChanged,
             onReset = onResetReaderPreferences,
             onDismiss = { isDisplayOptionsOpen = false }
+        )
+    }
+
+    if (isSearchOpen) {
+        ReaderSearchSheet(
+            query = inBookSearchQuery,
+            matches = inBookSearchMatches,
+            onQueryChange = onSearchQueryChange,
+            onSelectMatch = { match ->
+                onSelectChapter(match.chapterNumber)
+            },
+            onDismiss = { isSearchOpen = false }
+        )
+    }
+
+    if (isHighlightsOpen) {
+        ReaderHighlightsSheet(
+            highlights = highlights,
+            onSelectHighlightChapter = { targetChapter ->
+                onSelectChapter(targetChapter)
+            },
+            onEditHighlight = { highlight ->
+                isHighlightsOpen = false
+                val chapterBody = chapters.firstOrNull { it.chapterNumber == highlight.chapterNumber }
+                    ?.content?.takeIf(String::isNotBlank)
+                    ?: story.content.takeIf { highlight.chapterNumber == 1 }.orEmpty()
+                val paragraphText = InBookSearchEngine.paragraphs(chapterBody)
+                    .getOrNull(highlight.paragraphIndex)
+                    ?: highlight.selectedText
+                activeHighlightEditor = HighlightEditorTarget(
+                    chapterNumber = highlight.chapterNumber,
+                    paragraphIndex = highlight.paragraphIndex,
+                    paragraphText = paragraphText,
+                    existingHighlight = highlight
+                )
+            },
+            onDeleteHighlight = onDeleteHighlight,
+            onShareQuoteCard = { highlight ->
+                isHighlightsOpen = false
+                activeQuoteCard = QuoteCardTarget(
+                    quoteText = highlight.selectedText,
+                    note = highlight.note,
+                    color = highlight.color,
+                    chapterNumber = highlight.chapterNumber
+                )
+            },
+            onExportMarkdown = {
+                val markdown = HighlightExporter.exportAsMarkdown(story, highlights)
+                QuoteCardExporter.sharePlainText(
+                    context = context,
+                    chooserTitle = "Export highlights as Markdown",
+                    subject = "Highlights: ${story.title}",
+                    text = markdown
+                )
+            },
+            onDismiss = { isHighlightsOpen = false }
+        )
+    }
+
+    activeHighlightEditor?.let { target ->
+        PassageHighlightEditorSheet(
+            chapterNumber = target.chapterNumber,
+            paragraphIndex = target.paragraphIndex,
+            paragraphText = target.paragraphText,
+            existingHighlight = target.existingHighlight,
+            onSave = onSaveHighlight,
+            onDelete = onDeleteHighlight,
+            onOpenQuoteCard = { quoteText, note, color, chapNum ->
+                activeHighlightEditor = null
+                activeQuoteCard = QuoteCardTarget(
+                    quoteText = quoteText,
+                    note = note,
+                    color = color,
+                    chapterNumber = chapNum
+                )
+            },
+            onDismiss = { activeHighlightEditor = null }
+        )
+    }
+
+    activeQuoteCard?.let { card ->
+        QuoteCardShareSheet(
+            quoteText = card.quoteText,
+            storyTitle = story.title,
+            storyAuthor = story.author,
+            chapterNumber = card.chapterNumber,
+            note = card.note,
+            color = card.color,
+            onShareImage = {
+                coroutineScope.launch {
+                    QuoteCardExporter.shareQuoteCardImage(
+                        context = context,
+                        quoteText = card.quoteText,
+                        storyTitle = story.title,
+                        storyAuthor = story.author,
+                        chapterNumber = card.chapterNumber,
+                        note = card.note,
+                        color = card.color
+                    )
+                }
+            },
+            onShareText = {
+                val text = HighlightExporter.formatQuoteShareText(
+                    quoteText = card.quoteText,
+                    storyTitle = story.title,
+                    storyAuthor = story.author,
+                    chapterNumber = card.chapterNumber,
+                    note = card.note
+                )
+                QuoteCardExporter.sharePlainText(
+                    context = context,
+                    chooserTitle = "Share quote",
+                    subject = story.title,
+                    text = text
+                )
+            },
+            onDismiss = { activeQuoteCard = null }
         )
     }
 }
@@ -277,11 +462,14 @@ private fun ReaderChapterContent(
     content: String,
     readerPreferences: ReaderPreferences,
     palette: com.example.fable.ui.theme.ReaderPalette,
+    highlights: List<StoryHighlight>,
+    searchHighlightQuery: String?,
     onSaveProgress: (Int, Int) -> Unit,
     listState: LazyListState,
     onEnsureChapterLoaded: (Int) -> Unit,
     onActiveChapterChanged: (Int) -> Unit,
     onToggleChrome: () -> Unit,
+    onLongPressParagraph: (chapterNumber: Int, paragraphIndex: Int, paragraphText: String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val paginated = readerPreferences.layout == ReaderLayout.PAGINATED
@@ -313,6 +501,7 @@ private fun ReaderChapterContent(
         mutableIntStateOf(restoredChapterProgress)
     }
     val latestOnToggleChrome by rememberUpdatedState(onToggleChrome)
+    val latestOnLongPressParagraph by rememberUpdatedState(onLongPressParagraph)
     val pagerScope = rememberCoroutineScope()
     val readerModifier = modifier.pointerInput(Unit) {
         detectTapGestures(onTap = { latestOnToggleChrome() })
@@ -337,6 +526,9 @@ private fun ReaderChapterContent(
             }
             return
         }
+        val chapterHighlights = remember(highlights, chapterNumber) {
+            highlights.filter { it.chapterNumber == chapterNumber }
+        }
         key(story.id, chapterNumber, readyPages) {
             val pagerState = rememberPagerState(
                 initialPage = ReaderProgressMapper.pageIndexForProgress(
@@ -345,19 +537,28 @@ private fun ReaderChapterContent(
                 ),
                 pageCount = { readyPages.size }
             )
-            val pagerTapModifier = modifier.pointerInput(pagerState, readyPages.size) {
-                detectTapGestures { offset ->
-                    val targetPage = when {
-                        offset.x < size.width * TAP_ZONE_WIDTH_FRACTION -> pagerState.currentPage - 1
-                        offset.x > size.width * (1f - TAP_ZONE_WIDTH_FRACTION) -> pagerState.currentPage + 1
-                        else -> null
+            val pagerTapModifier = modifier.pointerInput(pagerState, readyPages.size, chapterNumber) {
+                detectTapGestures(
+                    onLongPress = {
+                        val pageText = readyPages.getOrNull(pagerState.currentPage).orEmpty()
+                        val firstParagraph = InBookSearchEngine.paragraphs(pageText).firstOrNull().orEmpty()
+                        if (firstParagraph.isNotBlank()) {
+                            latestOnLongPressParagraph(chapterNumber, pagerState.currentPage, firstParagraph)
+                        }
+                    },
+                    onTap = { offset ->
+                        val targetPage = when {
+                            offset.x < size.width * TAP_ZONE_WIDTH_FRACTION -> pagerState.currentPage - 1
+                            offset.x > size.width * (1f - TAP_ZONE_WIDTH_FRACTION) -> pagerState.currentPage + 1
+                            else -> null
+                        }
+                        if (targetPage == null) {
+                            latestOnToggleChrome()
+                        } else if (targetPage in readyPages.indices) {
+                            pagerScope.launch { pagerState.animateScrollToPage(targetPage) }
+                        }
                     }
-                    if (targetPage == null) {
-                        latestOnToggleChrome()
-                    } else if (targetPage in readyPages.indices) {
-                        pagerScope.launch { pagerState.animateScrollToPage(targetPage) }
-                    }
-                }
+                )
             }
             LaunchedEffect(pagerState, chapterNumber, chapterTotal, readyPages.size) {
                 snapshotFlow { pagerState.currentPage }
@@ -382,6 +583,10 @@ private fun ReaderChapterContent(
                 modifier = pagerTapModifier,
                 key = { it }
             ) { page ->
+                val pageText = readyPages[page]
+                val annotatedPage = remember(pageText, chapterHighlights, searchHighlightQuery) {
+                    buildHighlightedParagraph(pageText, chapterHighlights, searchHighlightQuery)
+                }
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -406,7 +611,7 @@ private fun ReaderChapterContent(
                         )
                     }
                     Text(
-                        readyPages[page],
+                        text = annotatedPage,
                         fontFamily = fontFamily,
                         fontSize = readerPreferences.scaledFontSize(18f).sp,
                         lineHeight = readerPreferences.scaledLineHeight(31f, 18f).sp,
@@ -428,7 +633,11 @@ private fun ReaderChapterContent(
             onSaveProgress = onSaveProgress,
             onEnsureChapterLoaded = onEnsureChapterLoaded,
             onActiveChapterChanged = onActiveChapterChanged,
-            modifier = readerModifier
+            modifier = readerModifier,
+            highlights = highlights,
+            searchHighlightQuery = searchHighlightQuery,
+            onToggleChrome = onToggleChrome,
+            onLongPressParagraph = onLongPressParagraph
         )
     }
 }

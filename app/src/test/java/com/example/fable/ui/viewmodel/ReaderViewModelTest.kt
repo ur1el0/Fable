@@ -3,12 +3,16 @@ package com.example.fable.ui.viewmodel
 import com.example.fable.domain.model.AppAppearance
 import com.example.fable.domain.model.Chapter
 import com.example.fable.domain.model.GenreCategory
+import com.example.fable.domain.model.HighlightColor
 import com.example.fable.domain.model.ReaderFont
 import com.example.fable.domain.model.ReaderPreferences
 import com.example.fable.domain.model.ReadingStats
 import com.example.fable.domain.model.Story
+import com.example.fable.domain.model.StoryHighlight
 import com.example.fable.domain.model.UpdateFeed
 import com.example.fable.domain.model.Writer
+import com.example.fable.domain.repository.EmptyHighlightRepository
+import com.example.fable.domain.repository.HighlightRepository
 import com.example.fable.domain.repository.ReaderPreferencesRepository
 import com.example.fable.domain.repository.ReadingStatsRepository
 import com.example.fable.domain.repository.StoryRepository
@@ -166,11 +170,103 @@ class ReaderViewModelTest {
         )
     }
 
+    @Test
+    fun inBookSearchAndHighlightsUpdateReaderUiState() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val highlightRepo = FakeHighlightRepository()
+            val repository = FakeStoryRepository(
+                chapters = listOf(
+                    chapter(content = "The old lighthouse stood on the cliff.\n\nWaves crashed below.")
+                )
+            )
+            val viewModel = ReaderViewModel(
+                repository = repository,
+                readingStatsRepository = FakeReadingStatsRepository,
+                readerPreferencesRepository = FakeReaderPreferencesRepository,
+                highlightRepository = highlightRepo
+            )
+            viewModel.setActiveOwner("user-1")
+            viewModel.openStory(story())
+            advanceUntilIdle()
+
+            viewModel.updateInBookSearchQuery("lighthouse")
+            assertEquals(1, viewModel.uiState.value.inBookSearchMatches.size)
+            assertEquals("lighthouse", viewModel.uiState.value.activeSearchHighlightTerm)
+
+            viewModel.saveHighlight(
+                chapterNumber = 1,
+                paragraphIndex = 0,
+                startOffset = 4,
+                endOffset = 18,
+                selectedText = "old lighthouse",
+                note = "Key symbol",
+                color = HighlightColor.AMBER
+            )
+            advanceUntilIdle()
+
+            val saved = viewModel.uiState.value.highlights.single()
+            assertEquals("old lighthouse", saved.selectedText)
+            assertEquals("Key symbol", saved.note)
+            assertEquals(HighlightColor.AMBER, saved.color)
+
+            viewModel.deleteHighlight(saved.id)
+            advanceUntilIdle()
+            assertEquals(emptyList<StoryHighlight>(), viewModel.uiState.value.highlights)
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
     private fun viewModel(repository: StoryRepository) = ReaderViewModel(
         repository = repository,
         readingStatsRepository = FakeReadingStatsRepository,
-        readerPreferencesRepository = FakeReaderPreferencesRepository
+        readerPreferencesRepository = FakeReaderPreferencesRepository,
+        highlightRepository = EmptyHighlightRepository
     )
+
+    private class FakeHighlightRepository : HighlightRepository {
+        private val highlights = MutableStateFlow<List<StoryHighlight>>(emptyList())
+
+        override fun observeHighlights(ownerId: String, storyId: String): Flow<List<StoryHighlight>> = highlights
+
+        override suspend fun saveHighlight(
+            ownerId: String,
+            storyId: String,
+            chapterNumber: Int,
+            paragraphIndex: Int,
+            startOffset: Int,
+            endOffset: Int,
+            selectedText: String,
+            note: String,
+            color: HighlightColor,
+            existingId: String?
+        ): Result<StoryHighlight> {
+            val item = StoryHighlight(
+                id = existingId ?: "hl-1",
+                ownerId = ownerId,
+                storyId = storyId,
+                chapterNumber = chapterNumber,
+                paragraphIndex = paragraphIndex,
+                startOffset = startOffset,
+                endOffset = endOffset,
+                selectedText = selectedText,
+                note = note,
+                color = color
+            )
+            highlights.value = highlights.value.filterNot { it.id == item.id } + item
+            return Result.success(item)
+        }
+
+        override suspend fun deleteHighlight(ownerId: String, highlightId: String): Result<Unit> {
+            highlights.value = highlights.value.filterNot { it.id == highlightId }
+            return Result.success(Unit)
+        }
+
+        override suspend fun clearOwnerData(ownerId: String): Result<Unit> = Result.success(Unit)
+
+        override suspend fun clearStoryHighlights(storyId: String): Result<Unit> = Result.success(Unit)
+    }
 
     private class FakeStoryRepository(
         chapters: List<Chapter>,

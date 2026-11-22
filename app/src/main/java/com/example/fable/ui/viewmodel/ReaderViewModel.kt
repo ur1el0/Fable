@@ -5,8 +5,14 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.fable.domain.model.AppAppearance
 import com.example.fable.domain.model.Chapter
+import com.example.fable.domain.model.HighlightColor
 import com.example.fable.domain.model.ReaderPreferences
 import com.example.fable.domain.model.Story
+import com.example.fable.domain.model.StoryHighlight
+import com.example.fable.domain.reading.InBookSearchEngine
+import com.example.fable.domain.reading.InBookSearchMatch
+import com.example.fable.domain.repository.EmptyHighlightRepository
+import com.example.fable.domain.repository.HighlightRepository
 import com.example.fable.domain.repository.ReaderPreferencesRepository
 import com.example.fable.domain.repository.ReadingStatsRepository
 import com.example.fable.domain.repository.StoryRepository
@@ -27,13 +33,18 @@ data class ReaderUiState(
     val isDownloadingOffline: Boolean = false,
     val offlineMessage: String? = null,
     val readerPreferences: ReaderPreferences = ReaderPreferences(),
+    val highlights: List<StoryHighlight> = emptyList(),
+    val inBookSearchQuery: String = "",
+    val inBookSearchMatches: List<InBookSearchMatch> = emptyList(),
+    val activeSearchHighlightTerm: String? = null,
     val errorMessage: String? = null
 )
 
 class ReaderViewModel(
     private val repository: StoryRepository,
     private val readingStatsRepository: ReadingStatsRepository,
-    private val readerPreferencesRepository: ReaderPreferencesRepository
+    private val readerPreferencesRepository: ReaderPreferencesRepository,
+    private val highlightRepository: HighlightRepository = EmptyHighlightRepository
 ) : ViewModel() {
     private val mutableUiState = MutableStateFlow(
         ReaderUiState(readerPreferences = readerPreferencesRepository.read())
@@ -43,6 +54,7 @@ class ReaderViewModel(
     private var selectedStoryJob: Job? = null
     private var chaptersJob: Job? = null
     private var refreshJob: Job? = null
+    private var highlightsJob: Job? = null
     private val loadingChapterRequests = mutableSetOf<Pair<String, Int>>()
     private var activeOwnerId = GUEST_OWNER_ID
     private var readerSessionStoryId: String? = null
@@ -50,7 +62,13 @@ class ReaderViewModel(
     private var readerSessionCompleted = false
 
     fun setActiveOwner(ownerId: String?) {
-        activeOwnerId = ownerId?.takeIf(String::isNotBlank) ?: GUEST_OWNER_ID
+        val nextOwnerId = ownerId?.takeIf(String::isNotBlank) ?: GUEST_OWNER_ID
+        val changed = activeOwnerId != nextOwnerId
+        activeOwnerId = nextOwnerId
+        val activeStoryId = mutableUiState.value.selectedStory?.id
+        if (changed && activeStoryId != null) {
+            observeHighlightsForStory(activeStoryId)
+        }
     }
 
     fun openStory(story: Story) {
@@ -113,6 +131,7 @@ class ReaderViewModel(
         selectedStoryJob?.cancel()
         chaptersJob?.cancel()
         refreshJob?.cancel()
+        highlightsJob?.cancel()
         readerSessionStoryId = null
         mutableUiState.update {
             it.copy(
@@ -122,6 +141,10 @@ class ReaderViewModel(
                 isLoadingStory = false,
                 isDownloadingOffline = false,
                 offlineMessage = null,
+                highlights = emptyList(),
+                inBookSearchQuery = "",
+                inBookSearchMatches = emptyList(),
+                activeSearchHighlightTerm = null,
                 errorMessage = null
             )
         }
@@ -246,6 +269,66 @@ class ReaderViewModel(
         mutableUiState.update { it.copy(offlineMessage = null) }
     }
 
+    fun saveHighlight(
+        chapterNumber: Int,
+        paragraphIndex: Int,
+        startOffset: Int,
+        endOffset: Int,
+        selectedText: String,
+        note: String,
+        color: HighlightColor,
+        existingId: String? = null
+    ) {
+        val story = mutableUiState.value.selectedStory ?: return
+        viewModelScope.launch {
+            highlightRepository.saveHighlight(
+                ownerId = activeOwnerId,
+                storyId = story.id,
+                chapterNumber = chapterNumber,
+                paragraphIndex = paragraphIndex,
+                startOffset = startOffset,
+                endOffset = endOffset,
+                selectedText = selectedText,
+                note = note,
+                color = color,
+                existingId = existingId
+            ).onFailure(::setError)
+        }
+    }
+
+    fun deleteHighlight(highlightId: String) {
+        viewModelScope.launch {
+            highlightRepository.deleteHighlight(activeOwnerId, highlightId)
+                .onFailure(::setError)
+        }
+    }
+
+    fun updateInBookSearchQuery(query: String) {
+        val state = mutableUiState.value
+        val matches = InBookSearchEngine.search(
+            query = query,
+            chapters = state.chapters,
+            fallbackContent = state.selectedStory?.content.orEmpty(),
+            fallbackChapterTitle = state.selectedStory?.chapter.orEmpty()
+        )
+        mutableUiState.update {
+            it.copy(
+                inBookSearchQuery = query,
+                inBookSearchMatches = matches,
+                activeSearchHighlightTerm = query.trim().takeIf(String::isNotEmpty)
+            )
+        }
+    }
+
+    private fun observeHighlightsForStory(storyId: String) {
+        highlightsJob?.cancel()
+        highlightsJob = highlightRepository.observeHighlights(activeOwnerId, storyId)
+            .onEach { highlights ->
+                mutableUiState.update { it.copy(highlights = highlights) }
+            }
+            .launchIn(viewModelScope)
+    }
+
     private fun startStoryObservation(
         storyId: String,
         initialStory: Story?,
@@ -263,9 +346,14 @@ class ReaderViewModel(
                 isLoadingStory = true,
                 isDownloadingOffline = false,
                 offlineMessage = null,
+                highlights = emptyList(),
+                inBookSearchQuery = "",
+                inBookSearchMatches = emptyList(),
+                activeSearchHighlightTerm = null,
                 errorMessage = null
             )
         }
+        observeHighlightsForStory(storyId)
         selectedStoryJob = repository.observeStory(storyId)
             .onEach { cached ->
                 if (cached != null) {
@@ -274,7 +362,21 @@ class ReaderViewModel(
             }
             .launchIn(viewModelScope)
         chaptersJob = repository.observeChapters(storyId)
-            .onEach { chapters -> mutableUiState.update { it.copy(chapters = chapters) } }
+            .onEach { chapters ->
+                mutableUiState.update { state ->
+                    val matches = if (state.inBookSearchQuery.isBlank()) {
+                        emptyList()
+                    } else {
+                        InBookSearchEngine.search(
+                            query = state.inBookSearchQuery,
+                            chapters = chapters,
+                            fallbackContent = state.selectedStory?.content.orEmpty(),
+                            fallbackChapterTitle = state.selectedStory?.chapter.orEmpty()
+                        )
+                    }
+                    state.copy(chapters = chapters, inBookSearchMatches = matches)
+                }
+            }
             .launchIn(viewModelScope)
         refreshJob = viewModelScope.launch {
             repository.refreshStory(storyId).onFailure(::setError)
@@ -317,12 +419,18 @@ class ReaderViewModel(
     class Factory(
         private val repository: StoryRepository,
         private val readingStatsRepository: ReadingStatsRepository,
-        private val readerPreferencesRepository: ReaderPreferencesRepository
+        private val readerPreferencesRepository: ReaderPreferencesRepository,
+        private val highlightRepository: HighlightRepository = EmptyHighlightRepository
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
             require(modelClass.isAssignableFrom(ReaderViewModel::class.java))
-            return ReaderViewModel(repository, readingStatsRepository, readerPreferencesRepository) as T
+            return ReaderViewModel(
+                repository,
+                readingStatsRepository,
+                readerPreferencesRepository,
+                highlightRepository
+            ) as T
         }
     }
 

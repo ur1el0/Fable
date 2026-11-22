@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.EditNote
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -49,7 +51,10 @@ fun ReaderControlsOverlay(
     onPreviousChapter: () -> Unit,
     onNextChapter: () -> Unit,
     onFinish: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    showProseTools: Boolean = false,
+    onOpenSearch: () -> Unit = {},
+    onOpenHighlights: () -> Unit = {}
 ) {
     AnimatedVisibility(
         visible = visible,
@@ -95,6 +100,22 @@ fun ReaderControlsOverlay(
                         style = MaterialTheme.typography.labelMedium,
                         color = palette.foreground
                     )
+                    if (showProseTools) {
+                        IconButton(onClick = onOpenSearch, modifier = Modifier.size(48.dp)) {
+                            Icon(
+                                Icons.Outlined.Search,
+                                contentDescription = "Search in book",
+                                tint = palette.foreground
+                            )
+                        }
+                        IconButton(onClick = onOpenHighlights, modifier = Modifier.size(48.dp)) {
+                            Icon(
+                                Icons.Outlined.EditNote,
+                                contentDescription = "Highlights and notes",
+                                tint = palette.foreground
+                            )
+                        }
+                    }
                     IconButton(onClick = onDisplayOptions, modifier = Modifier.size(48.dp)) {
                         Icon(Icons.Outlined.Tune, contentDescription = "Display options", tint = palette.foreground)
                     }

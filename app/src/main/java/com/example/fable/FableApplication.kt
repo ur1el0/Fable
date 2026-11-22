@@ -11,10 +11,12 @@ import com.example.fable.data.remote.FableApiService
 import com.example.fable.data.remote.FableHttpClientFactory
 import com.example.fable.data.remote.MangaApiService
 import com.example.fable.data.repository.RemoteAccountRepository
+import com.example.fable.data.repository.RoomHighlightRepository
 import com.example.fable.data.repository.RoomReadingStatsRepository
 import com.example.fable.data.repository.RoomStoryRepository
 import com.example.fable.data.repository.RoomWriterDraftRepository
 import com.example.fable.domain.repository.AccountRepository
+import com.example.fable.domain.repository.HighlightRepository
 import com.example.fable.domain.repository.ReadingStatsRepository
 import com.example.fable.domain.repository.ReaderPreferencesRepository
 import com.example.fable.domain.repository.ServerConfigRepository
@@ -43,6 +45,8 @@ class FableApplication : Application() {
         private set
     lateinit var writerDraftRepository: WriterDraftRepository
         private set
+    lateinit var highlightRepository: HighlightRepository
+        private set
 
     override fun onCreate() {
         super.onCreate()
@@ -54,7 +58,8 @@ class FableApplication : Application() {
             FableDatabase.MIGRATION_1_2,
             FableDatabase.MIGRATION_2_3,
             FableDatabase.MIGRATION_3_4,
-            FableDatabase.MIGRATION_4_5
+            FableDatabase.MIGRATION_4_5,
+            FableDatabase.MIGRATION_5_6
         ).build()
         sessionStore = SecureSessionStore(applicationContext)
         deviceIdentityStore = DeviceIdentityStore(applicationContext)
@@ -91,5 +96,6 @@ class FableApplication : Application() {
         )
         readerPreferencesRepository = SharedPreferencesReaderPreferencesRepository(applicationContext)
         writerDraftRepository = RoomWriterDraftRepository(database.writerDraftDao())
+        highlightRepository = RoomHighlightRepository(database.highlightDao())
     }
 }
