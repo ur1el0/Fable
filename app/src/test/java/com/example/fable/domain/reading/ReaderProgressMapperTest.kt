@@ -1,6 +1,7 @@
 package com.example.fable.domain.reading
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 class ReaderProgressMapperTest {
@@ -40,5 +41,63 @@ class ReaderProgressMapperTest {
         assertEquals(0, ReaderProgressMapper.scrollOffsetForProgress(-10, 1_000))
         assertEquals(1_000, ReaderProgressMapper.scrollOffsetForProgress(110, 1_000))
         assertEquals(0, ReaderProgressMapper.scrollOffsetForProgress(50, -10))
+    }
+
+    @Test
+    fun computesWebtoonProgressAcrossPagesAndAtChapterEnd() {
+        assertNull(
+            ReaderProgressMapper.webtoonProgressPercent(
+                firstVisibleIndex = 0,
+                firstVisibleOffset = 0,
+                firstVisibleSize = 1_000,
+                viewportStartOffset = 0,
+                canScrollForward = true,
+                pageCount = 0
+            )
+        )
+        assertEquals(
+            0,
+            ReaderProgressMapper.webtoonProgressPercent(
+                firstVisibleIndex = 0,
+                firstVisibleOffset = 0,
+                firstVisibleSize = 1_000,
+                viewportStartOffset = 0,
+                canScrollForward = true,
+                pageCount = 4
+            )
+        )
+        assertEquals(
+            13,
+            ReaderProgressMapper.webtoonProgressPercent(
+                firstVisibleIndex = 0,
+                firstVisibleOffset = -500,
+                firstVisibleSize = 1_000,
+                viewportStartOffset = 0,
+                canScrollForward = true,
+                pageCount = 4
+            )
+        )
+        assertEquals(
+            63,
+            ReaderProgressMapper.webtoonProgressPercent(
+                firstVisibleIndex = 2,
+                firstVisibleOffset = -200,
+                firstVisibleSize = 400,
+                viewportStartOffset = 0,
+                canScrollForward = true,
+                pageCount = 4
+            )
+        )
+        assertEquals(
+            100,
+            ReaderProgressMapper.webtoonProgressPercent(
+                firstVisibleIndex = 2,
+                firstVisibleOffset = 0,
+                firstVisibleSize = 400,
+                viewportStartOffset = 0,
+                canScrollForward = false,
+                pageCount = 4
+            )
+        )
     }
 }
