@@ -17,6 +17,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.BrightnessHigh
+import androidx.compose.material.icons.outlined.BrightnessLow
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -113,6 +115,52 @@ fun ReaderDisplayOptionsSheet(
                         fontFamily = draft.font.toFontFamily(),
                         fontSize = draft.scaledFontSize(15f).sp,
                         lineHeight = draft.scaledLineHeight(25f, 15f).sp
+                    )
+                }
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                val brightnessLabel = draft.readerBrightness?.let { "${(it * 100).roundToInt()}%" } ?: "Auto"
+                SettingLabel("Screen brightness", brightnessLabel)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.BrightnessLow,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Slider(
+                        value = draft.readerBrightness ?: 0.75f,
+                        onValueChange = { value ->
+                            val updated = draft.copy(
+                                readerBrightness = value.coerceIn(
+                                    ReaderPreferences.MIN_BRIGHTNESS,
+                                    ReaderPreferences.MAX_BRIGHTNESS
+                                )
+                            )
+                            draft = updated
+                            onPreferencesChanged(updated)
+                        },
+                        valueRange = ReaderPreferences.MIN_BRIGHTNESS..ReaderPreferences.MAX_BRIGHTNESS,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Icon(
+                        imageVector = Icons.Outlined.BrightnessHigh,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    FilterChip(
+                        selected = draft.readerBrightness == null,
+                        onClick = {
+                            val updated = draft.copy(readerBrightness = null)
+                            draft = updated
+                            onPreferencesChanged(updated)
+                        },
+                        label = { Text("Auto") }
                     )
                 }
             }

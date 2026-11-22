@@ -1,6 +1,7 @@
 package com.example.fable.ui.screens
 
 import android.os.SystemClock
+import android.view.WindowManager
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -40,6 +41,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -54,6 +56,7 @@ import com.example.fable.domain.model.Story
 import com.example.fable.domain.reading.ReaderPagePacker
 import com.example.fable.domain.reading.ReaderProgressMapper
 import com.example.fable.ui.screens.components.ContinuousChapterList
+import com.example.fable.ui.theme.findActivity
 import com.example.fable.ui.theme.readerPalette
 import com.example.fable.ui.theme.scaledFontSize
 import com.example.fable.ui.theme.scaledLineHeight
@@ -106,6 +109,8 @@ fun StoryReaderScreen(
     val content = requestedChapter?.content?.takeIf(String::isNotBlank)
         ?: story.content.takeIf { requestedChapter == null || chapterNumber == 1 }.orEmpty()
     val palette = readerPalette(readerPreferences.theme)
+
+    ReaderWindowBrightnessEffect(brightness = readerPreferences.readerBrightness)
 
     LaunchedEffect(story.id, chapterNumber, requestedChapter?.pageUrls, story.contentFormat) {
         if (story.contentFormat == ContentFormat.MANGA && requestedChapter?.pageUrls.isNullOrEmpty()) {
@@ -171,6 +176,14 @@ fun StoryReaderScreen(
                     chapterTotal = chapterTotal,
                     mode = readerPreferences.mangaReadingMode,
                     palette = palette,
+                    hasPreviousChapter = activeChapterIndex > 0,
+                    hasNextChapter = activeChapterIndex in 0 until chapters.lastIndex,
+                    onPreviousChapter = {
+                        chapters.getOrNull(activeChapterIndex - 1)?.let { onSelectChapter(it.chapterNumber) }
+                    },
+                    onNextChapter = {
+                        chapters.getOrNull(activeChapterIndex + 1)?.let { onSelectChapter(it.chapterNumber) }
+                    },
                     onSaveProgress = onSaveProgress,
                     onToggleChrome = { isChromeVisible = !isChromeVisible },
                     modifier = readerModifier
@@ -224,6 +237,33 @@ fun StoryReaderScreen(
             onReset = onResetReaderPreferences,
             onDismiss = { isDisplayOptionsOpen = false }
         )
+    }
+}
+
+@Composable
+private fun ReaderWindowBrightnessEffect(brightness: Float?) {
+    val view = LocalView.current
+    val window = remember(view) { view.context.findActivity()?.window }
+    DisposableEffect(window) {
+        val originalBrightness = window?.attributes?.screenBrightness
+            ?: WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+        onDispose {
+            window?.let { win ->
+                win.attributes = win.attributes.apply {
+                    screenBrightness = originalBrightness
+                }
+            }
+        }
+    }
+    LaunchedEffect(window, brightness) {
+        window?.let { win ->
+            win.attributes = win.attributes.apply {
+                screenBrightness = brightness?.coerceIn(
+                    ReaderPreferences.MIN_BRIGHTNESS,
+                    ReaderPreferences.MAX_BRIGHTNESS
+                ) ?: WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+            }
+        }
     }
 }
 
