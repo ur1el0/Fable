@@ -23,6 +23,8 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.Logout
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -46,9 +48,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.fable.data.remote.ServerUrlValidator
+import com.example.fable.domain.model.AppAppearance
 import com.example.fable.domain.model.Story
 import com.example.fable.domain.model.UserProfile
 import com.example.fable.ui.components.StoryCover
@@ -70,6 +75,8 @@ fun AccountScreen(
     onDeleteAccount: () -> Unit = {},
     onEditStory: (Story) -> Unit = {},
     onDeleteStory: (Story) -> Unit = {},
+    appAppearance: AppAppearance = AppAppearance.SYSTEM,
+    onAppAppearanceChange: (AppAppearance) -> Unit = {},
     serverConfigState: ServerConfigUiState? = null,
     onApplyServerUrl: (String) -> Unit = {},
     onResetServerUrl: () -> Unit = {},
@@ -200,6 +207,12 @@ fun AccountScreen(
                     Text(state.noticeMessage, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyMedium)
                 }
             }
+            item {
+                AppAppearanceSection(
+                    selectedAppearance = appAppearance,
+                    onAppearanceChange = onAppAppearanceChange
+                )
+            }
             if (serverConfigState?.isRuntimeSwitchEnabled == true) {
                 item {
                     DeveloperServerSection(
@@ -311,6 +324,46 @@ private fun PublishedStoryRow(
                     contentDescription = "Delete story",
                     tint = MaterialTheme.colorScheme.error
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AppAppearanceSection(
+    selectedAppearance: AppAppearance,
+    onAppearanceChange: (AppAppearance) -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 6.dp),
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.48f))
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                "APPEARANCE",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Text(
+                "Choose whether Fable follows your device theme or uses an explicit light or dark palette.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                AppAppearance.entries.forEach { appearance ->
+                    FilterChip(
+                        selected = selectedAppearance == appearance,
+                        onClick = { onAppearanceChange(appearance) },
+                        label = { Text(appearance.displayLabel) }
+                    )
+                }
             }
         }
     }
@@ -434,6 +487,8 @@ private fun AuthForm(
     onRegister: () -> Unit,
     onForgotPassword: () -> Unit
 ) {
+    var isPasswordVisible by rememberSaveable { mutableStateOf(false) }
+
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(if (isRegistration) "Create account" else "Sign in", style = MaterialTheme.typography.headlineMedium)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -446,12 +501,21 @@ private fun AuthForm(
         }
         OutlinedTextField(email, onEmailChange, modifier = Modifier.fillMaxWidth(), label = { Text("Email") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email))
         OutlinedTextField(
-            password,
-            onPasswordChange,
+            value = password,
+            onValueChange = onPasswordChange,
             modifier = Modifier.fillMaxWidth(),
             label = { Text("Password") },
             supportingText = if (isRegistration) ({ Text("At least 12 characters") }) else null,
             singleLine = true,
+            visualTransformation = if (isPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+            trailingIcon = {
+                IconButton(onClick = { isPasswordVisible = !isPasswordVisible }) {
+                    Icon(
+                        imageVector = if (isPasswordVisible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+                        contentDescription = if (isPasswordVisible) "Hide password" else "Show password"
+                    )
+                }
+            },
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
         )
         Button(
@@ -478,12 +542,30 @@ private fun PasswordRecoveryForm(
     onConfirm: () -> Unit,
     onBackToSignIn: () -> Unit
 ) {
+    var isPasswordVisible by rememberSaveable { mutableStateOf(false) }
+
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Password recovery", style = MaterialTheme.typography.headlineMedium)
         OutlinedTextField(email, onEmailChange, modifier = Modifier.fillMaxWidth(), label = { Text("Account email") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email))
         Button(onClick = onRequest, enabled = !isBusy, modifier = Modifier.fillMaxWidth()) { Text("Send recovery email") }
         OutlinedTextField(token, onTokenChange, modifier = Modifier.fillMaxWidth(), label = { Text("Reset token") }, singleLine = true)
-        OutlinedTextField(password, onPasswordChange, modifier = Modifier.fillMaxWidth(), label = { Text("New password") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password))
+        OutlinedTextField(
+            value = password,
+            onValueChange = onPasswordChange,
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("New password") },
+            singleLine = true,
+            visualTransformation = if (isPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+            trailingIcon = {
+                IconButton(onClick = { isPasswordVisible = !isPasswordVisible }) {
+                    Icon(
+                        imageVector = if (isPasswordVisible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+                        contentDescription = if (isPasswordVisible) "Hide password" else "Show password"
+                    )
+                }
+            },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
+        )
         OutlinedButton(onClick = onConfirm, enabled = !isBusy, modifier = Modifier.fillMaxWidth()) { Text("Update password") }
         TextButton(onClick = onBackToSignIn) { Text("Back to sign in") }
     }

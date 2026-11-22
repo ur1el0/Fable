@@ -43,6 +43,7 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.fable.domain.model.AppAppearance
 import com.example.fable.domain.model.ReaderFont
 import com.example.fable.domain.model.ReaderLayout
 import com.example.fable.domain.model.ReaderLineSpacing
@@ -300,6 +301,22 @@ fun ReaderDisplayOptionsSheet(
                                 label = { Text(mode.displayLabel()) }
                             )
                         }
+                    }
+                }
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                SettingLabel("App appearance", draft.appAppearance.displayLabel)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    AppAppearance.entries.forEach { appearance ->
+                        FilterChip(
+                            selected = draft.appAppearance == appearance,
+                            onClick = {
+                                draft = draft.copy(appAppearance = appearance)
+                                onPreferencesChanged(draft)
+                            },
+                            label = { Text(appearance.displayLabel) }
+                        )
                     }
                 }
             }

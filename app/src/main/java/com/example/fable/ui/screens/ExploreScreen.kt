@@ -1,5 +1,6 @@
 package com.example.fable.ui.screens
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -16,9 +17,12 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -95,6 +99,26 @@ fun ExploreScreen(
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
+                trailingIcon = if (query.isNotEmpty()) {
+                    {
+                        IconButton(
+                            onClick = {
+                                query = ""
+                                if (selectedCatalog != StoryCatalog.FABLE) {
+                                    onSearchProvider(
+                                        selectedCatalog,
+                                        "",
+                                        selectedGutenbergSort.takeIf { selectedCatalog == StoryCatalog.GUTENBERG }
+                                    )
+                                }
+                            }
+                        ) {
+                            Icon(Icons.Outlined.Close, contentDescription = "Clear search")
+                        }
+                    }
+                } else {
+                    null
+                },
                 placeholder = { Text("Stories, authors, genres") },
                 shape = MaterialTheme.shapes.small
             )
@@ -187,7 +211,21 @@ fun ExploreScreen(
             item {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
                     items(writers, key = Writer::id) { writer ->
-                        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(76.dp)) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier
+                                .width(76.dp)
+                                .clickable {
+                                    query = writer.name
+                                    if (selectedCatalog != StoryCatalog.FABLE) {
+                                        onSearchProvider(
+                                            selectedCatalog,
+                                            writer.name,
+                                            selectedGutenbergSort.takeIf { selectedCatalog == StoryCatalog.GUTENBERG }
+                                        )
+                                    }
+                                }
+                        ) {
                             Surface(
                                 shape = CircleShape,
                                 color = MaterialTheme.colorScheme.surfaceVariant,
@@ -205,6 +243,12 @@ fun ExploreScreen(
                         }
                     }
                 }
+            }
+        }
+
+        if (isSearchingProvider) {
+            item {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             }
         }
 

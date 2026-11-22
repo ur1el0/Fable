@@ -244,6 +244,8 @@ fun FableApp(modifier: Modifier = Modifier) {
                     navBackStack = navBackStack.openEditStory(story.id)
                 },
                 onDeleteStory = { story -> deleteStoryById(story.id) },
+                appAppearance = readerState.readerPreferences.appAppearance,
+                onAppAppearanceChange = readerViewModel::updateAppAppearance,
                 serverConfigState = serverConfigState,
                 onApplyServerUrl = { rawUrl ->
                     serverConfigViewModel.applyBaseUrl(rawUrl) {

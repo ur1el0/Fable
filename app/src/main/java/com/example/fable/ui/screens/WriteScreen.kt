@@ -144,8 +144,13 @@ fun WriteScreen(
                     label = { Text("Opening chapter") },
                     minLines = 8,
                     supportingText = {
+                        val readTimeLabel = if (contentWordCount > 0) {
+                            " · ~${(contentWordCount / 200).coerceAtLeast(1)} min read"
+                        } else {
+                            ""
+                        }
                         Text(
-                            "$contentWordCount words",
+                            "$contentWordCount words$readTimeLabel",
                             textAlign = TextAlign.End,
                             modifier = Modifier.fillMaxWidth()
                         )

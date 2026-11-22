@@ -21,12 +21,14 @@ import androidx.compose.material.icons.outlined.Bookmark
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.PersonOutline
 import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -53,6 +55,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LibraryScreen(
     modifier: Modifier = Modifier,
@@ -86,8 +89,13 @@ fun LibraryScreen(
         ?.takeIf { it.isNotEmpty() }
         ?: filteredStories.filter { it.isRecentSubmission }.ifEmpty { filteredStories }
 
+    PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = onRefresh,
+        modifier = modifier.fillMaxSize()
+    ) {
     LazyColumn(
-        modifier = modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 20.dp, top = 16.dp, end = 20.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
@@ -138,7 +146,14 @@ fun LibraryScreen(
         }
 
         if (featured != null) {
-            item { FeaturedStory(story = featured, onClick = { onStorySelected(featured) }, onBookmark = { onToggleBookmark(featured) }) }
+            item {
+                FeaturedStory(
+                    story = featured,
+                    isAvailableOffline = featured.id in offlineStoryIds,
+                    onClick = { onStorySelected(featured) },
+                    onBookmark = { onToggleBookmark(featured) }
+                )
+            }
         } else {
             item {
                 EmptyState(
@@ -174,10 +189,16 @@ fun LibraryScreen(
             }
         }
     }
+    }
 }
 
 @Composable
-private fun FeaturedStory(story: Story, onClick: () -> Unit, onBookmark: () -> Unit) {
+private fun FeaturedStory(
+    story: Story,
+    isAvailableOffline: Boolean,
+    onClick: () -> Unit,
+    onBookmark: () -> Unit
+) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -187,7 +208,11 @@ private fun FeaturedStory(story: Story, onClick: () -> Unit, onBookmark: () -> U
             .clickable(onClick = onClick)
     ) {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
-            Column(modifier = Modifier.weight(1f).padding(start = 16.dp, top = 14.dp)) {
+            Row(
+                modifier = Modifier.weight(1f).padding(start = 16.dp, top = 14.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Surface(
                     color = MaterialTheme.colorScheme.tertiaryContainer,
                     shape = RoundedCornerShape(6.dp)
@@ -204,6 +229,19 @@ private fun FeaturedStory(story: Story, onClick: () -> Unit, onBookmark: () -> U
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
                     )
                 }
+                if (isAvailableOffline) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.secondaryContainer,
+                        shape = RoundedCornerShape(6.dp)
+                    ) {
+                        Text(
+                            "OFFLINE",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
+                        )
+                    }
+                }
             }
             IconButton(onClick = onBookmark, modifier = Modifier.size(48.dp)) {
                 Icon(
@@ -215,7 +253,15 @@ private fun FeaturedStory(story: Story, onClick: () -> Unit, onBookmark: () -> U
         }
         StoryCover(story, Modifier.fillMaxWidth().height(190.dp).padding(horizontal = 12.dp))
         Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            Text(story.author, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                listOfNotNull(
+                    story.author,
+                    story.genre.takeIf(String::isNotBlank),
+                    "${story.readTimeMinutes.coerceAtLeast(1)} min read"
+                ).joinToString("  ·  "),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
             Text(
                 story.title,
                 style = MaterialTheme.typography.headlineMedium,
