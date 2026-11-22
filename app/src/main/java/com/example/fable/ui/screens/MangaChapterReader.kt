@@ -2,34 +2,48 @@ package com.example.fable.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import coil3.compose.AsyncImagePainter
+import coil3.request.ImageRequest
 import com.example.fable.domain.model.Chapter
 import com.example.fable.domain.model.MangaReadingMode
 import com.example.fable.domain.model.Story
@@ -40,7 +54,6 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.filterNotNull
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
@@ -58,7 +71,14 @@ fun MangaChapterReader(
     modifier: Modifier = Modifier
 ) {
     val pageUrls = chapter?.pageUrls.orEmpty()
-    val restoredProgress = remember(story.id, chapterNumber, chapterTotal, story.progressPercent) {
+    val restoredProgress = remember(
+        story.id,
+        chapterNumber,
+        chapterTotal,
+        story.progressPercent,
+        story.lastReadChapterNumber,
+        pageUrls.size
+    ) {
         val chapterProgress = if (
             story.lastReadChapterNumber != null && story.lastReadChapterNumber != chapterNumber
         ) {
@@ -176,11 +196,12 @@ private fun WebtoonPageList(
                 items = pageUrls,
                 key = { index, pageUrl -> "$storyId-$chapterNumber-$index-$pageUrl" }
             ) { index, pageUrl ->
-                AsyncImage(
-                    model = pageUrl,
-                    contentDescription = "Comic page ${index + 1}",
+                MangaPageImage(
+                    pageUrl = pageUrl,
+                    pageIndex = index,
                     contentScale = ContentScale.FillWidth,
-                    modifier = Modifier.fillMaxWidth()
+                    isWebtoon = true,
+                    palette = palette
                 )
             }
         }
@@ -188,7 +209,10 @@ private fun WebtoonPageList(
             pageNumber = currentPage.coerceIn(1, pageUrls.size),
             pageTotal = pageUrls.size,
             palette = palette,
-            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 10.dp)
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .padding(bottom = 10.dp)
         )
     }
 }
@@ -212,7 +236,7 @@ private fun PagedChapter(
     )
     val pagerScope = rememberCoroutineScope()
     val latestOnSaveProgress by rememberUpdatedState(onSaveProgress)
-    val latestOnToggleChrome by androidx.compose.runtime.rememberUpdatedState(onToggleChrome)
+    val latestOnToggleChrome by rememberUpdatedState(onToggleChrome)
     val tapModifier = Modifier.pointerInput(pagerState, mode, pageUrls.size) {
         detectTapGestures { point ->
             val leftZone = point.x < size.width * TAP_ZONE_FRACTION
@@ -271,19 +295,102 @@ private fun PagedChapter(
             reverseLayout = mode == MangaReadingMode.PAGE_RTL,
             key = { page -> page }
         ) { page ->
-            AsyncImage(
-                model = pageUrls[page],
-                contentDescription = "Comic page ${page + 1}",
+            MangaPageImage(
+                pageUrl = pageUrls[page],
+                pageIndex = page,
                 contentScale = ContentScale.Fit,
-                modifier = Modifier.fillMaxSize().padding(4.dp)
+                isWebtoon = false,
+                palette = palette
             )
         }
         PageCounter(
             pageNumber = pagerState.currentPage + 1,
             pageTotal = pageUrls.size,
             palette = palette,
-            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 10.dp)
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .padding(bottom = 10.dp)
         )
+    }
+}
+
+@Composable
+private fun MangaPageImage(
+    pageUrl: String,
+    pageIndex: Int,
+    contentScale: ContentScale,
+    isWebtoon: Boolean,
+    palette: ReaderPalette
+) {
+    val context = LocalContext.current
+    var retryToken by remember(pageUrl) { mutableIntStateOf(0) }
+
+    key(pageUrl, retryToken) {
+        var loadState by remember {
+            mutableStateOf<AsyncImagePainter.State>(AsyncImagePainter.State.Loading(null))
+        }
+        val request = remember(context, pageUrl, retryToken) {
+            ImageRequest.Builder(context)
+                .data(pageUrl)
+                .memoryCacheKey("$pageUrl#$retryToken")
+                .diskCacheKey(pageUrl)
+                .build()
+        }
+        val containerModifier = when {
+            !isWebtoon -> Modifier.fillMaxSize().padding(4.dp)
+            loadState is AsyncImagePainter.State.Success -> Modifier.fillMaxWidth()
+            else -> Modifier
+                .fillMaxWidth()
+                .defaultMinSize(minHeight = WEBTOON_PLACEHOLDER_HEIGHT)
+                .background(palette.foreground.copy(alpha = 0.06f))
+        }
+
+        Box(modifier = containerModifier, contentAlignment = Alignment.Center) {
+            AsyncImage(
+                model = request,
+                contentDescription = "Comic page ${pageIndex + 1}",
+                contentScale = contentScale,
+                onLoading = { loadState = it },
+                onSuccess = { loadState = it },
+                onError = { loadState = it },
+                modifier = if (isWebtoon) Modifier.fillMaxWidth() else Modifier.fillMaxSize()
+            )
+            when (loadState) {
+                is AsyncImagePainter.State.Loading -> {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        CircularProgressIndicator(color = palette.foreground)
+                        Text(
+                            "Page ${pageIndex + 1}",
+                            color = palette.foreground.copy(alpha = 0.84f),
+                            style = MaterialTheme.typography.labelMedium
+                        )
+                    }
+                }
+
+                is AsyncImagePainter.State.Error -> {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.padding(16.dp)
+                    ) {
+                        Text(
+                            "Could not load page ${pageIndex + 1}",
+                            color = palette.foreground,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        TextButton(onClick = { retryToken += 1 }) {
+                            Text("Retry")
+                        }
+                    }
+                }
+
+                else -> Unit
+            }
+        }
     }
 }
 
@@ -310,20 +417,21 @@ private fun PageCounter(
 }
 
 private fun webtoonProgressPercent(
-    listState: androidx.compose.foundation.lazy.LazyListState,
+    listState: LazyListState,
     pageCount: Int
 ): Int? {
-    if (pageCount <= 0) return null
     val layoutInfo = listState.layoutInfo
     val visiblePage = layoutInfo.visibleItemsInfo.firstOrNull() ?: return null
-    val viewportHeight = (layoutInfo.viewportEndOffset - layoutInfo.viewportStartOffset).coerceAtLeast(1)
-    val scrollRange = (visiblePage.size - viewportHeight).coerceAtLeast(1)
-    val pageOffset = (layoutInfo.viewportStartOffset - visiblePage.offset).coerceIn(0, scrollRange)
-    val withinPage = pageOffset.toFloat() / scrollRange
-    return (((visiblePage.index + withinPage) / pageCount) * 100)
-        .roundToInt()
-        .coerceIn(0, 100)
+    return ReaderProgressMapper.webtoonProgressPercent(
+        firstVisibleIndex = visiblePage.index,
+        firstVisibleOffset = visiblePage.offset,
+        firstVisibleSize = visiblePage.size,
+        viewportStartOffset = layoutInfo.viewportStartOffset,
+        canScrollForward = listState.canScrollForward,
+        pageCount = pageCount
+    )
 }
 
+private val WEBTOON_PLACEHOLDER_HEIGHT = 480.dp
 private const val TAP_ZONE_FRACTION = 0.3f
 private const val PROGRESS_SAVE_DEBOUNCE_MS = 700L
