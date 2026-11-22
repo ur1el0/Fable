@@ -26,10 +26,6 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.decodeFromString
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
@@ -39,7 +35,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 
 class FableApiService(
     baseUrl: String,
-    private val client: OkHttpClient = OkHttpClient(),
+    private val client: OkHttpClient = FableHttpClientFactory.create(),
     private val json: Json = Json { ignoreUnknownKeys = true },
     private val accessTokenProvider: () -> String? = { null }
 ) : ReadingStatsRemoteDataSource {
@@ -173,107 +169,72 @@ class FableApiService(
     private suspend inline fun <reified T> get(
         url: HttpUrl,
         accessToken: String? = accessTokenProvider()
-    ): T = withContext(Dispatchers.IO) {
-        val requestBuilder = Request.Builder().url(url).get()
-        accessToken?.takeIf(String::isNotBlank)?.let { token ->
-            requestBuilder.header("Authorization", "Bearer $token")
-        }
-        val request = requestBuilder.build()
-        client.newCall(request).execute().use { response ->
-            val payload = response.body?.string().orEmpty()
-            if (!response.isSuccessful) {
-                val detail = parseErrorDetail(payload)
-                throw FableApiException(response.code, detail ?: "The server could not complete the request.")
-            }
-            json.decodeFromString<T>(payload)
-        }
-    }
+    ): T = executeForJson(Request.Builder().url(url).get(), accessToken)
 
     private suspend inline fun <reified T, reified B> postJson(
         url: HttpUrl,
         body: B,
         accessToken: String? = null
-    ): T =
-        withContext(Dispatchers.IO) {
-            val requestBody = json.encodeToString(body)
-                .toRequestBody("application/json; charset=utf-8".toMediaType())
-            val requestBuilder = Request.Builder().url(url).post(requestBody)
-            accessToken?.takeIf(String::isNotBlank)?.let { requestBuilder.header("Authorization", "Bearer $it") }
-            val request = requestBuilder.build()
-            client.newCall(request).execute().use { response ->
-                val payload = response.body?.string().orEmpty()
-                if (!response.isSuccessful) {
-                    val detail = parseErrorDetail(payload)
-                    throw FableApiException(response.code, detail ?: "The server could not complete the request.")
-                }
-                json.decodeFromString<T>(payload)
-            }
-        }
+    ): T {
+        val requestBody = json.encodeToString(body)
+            .toRequestBody("application/json; charset=utf-8".toMediaType())
+        return executeForJson(Request.Builder().url(url).post(requestBody), accessToken)
+    }
 
     private suspend inline fun <reified T, reified B> patchJson(
         url: HttpUrl,
         body: B,
         accessToken: String?
-    ): T = withContext(Dispatchers.IO) {
+    ): T {
         val requestBody = json.encodeToString(body)
             .toRequestBody("application/json; charset=utf-8".toMediaType())
-        val requestBuilder = Request.Builder().url(url).patch(requestBody)
-        accessToken?.takeIf(String::isNotBlank)?.let { requestBuilder.header("Authorization", "Bearer $it") }
-        client.newCall(requestBuilder.build()).execute().use { response ->
+        return executeForJson(Request.Builder().url(url).patch(requestBody), accessToken)
+    }
+
+    private suspend fun postNoContent(url: HttpUrl, accessToken: String?) =
+        executeNoContent(Request.Builder().url(url).post(ByteArray(0).toRequestBody()), accessToken)
+
+    private suspend inline fun <reified B> postNoContentWithBody(
+        url: HttpUrl,
+        body: B,
+        accessToken: String?
+    ) {
+        val requestBody = json.encodeToString(body).toRequestBody("application/json; charset=utf-8".toMediaType())
+        executeNoContent(Request.Builder().url(url).post(requestBody), accessToken)
+    }
+
+    private suspend inline fun <reified T> executeForJson(
+        requestBuilder: Request.Builder,
+        accessToken: String?
+    ): T = withContext(Dispatchers.IO) {
+        accessToken?.takeIf(String::isNotBlank)?.let { token ->
+            requestBuilder.header("Authorization", "Bearer $token")
+        }
+        client.newCall(requestBuilder.build()).awaitResponse().use { response ->
             val payload = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
-                val detail = parseErrorDetail(payload)
+                val detail = parseApiErrorDetail(json, payload)
                 throw FableApiException(response.code, detail ?: "The server could not complete the request.")
             }
             json.decodeFromString<T>(payload)
         }
     }
 
-    private suspend fun postNoContent(url: HttpUrl, accessToken: String?) = withContext(Dispatchers.IO) {
-        val requestBuilder = Request.Builder().url(url).post(ByteArray(0).toRequestBody())
-        accessToken?.takeIf(String::isNotBlank)?.let { requestBuilder.header("Authorization", "Bearer $it") }
-        client.newCall(requestBuilder.build()).execute().use { response ->
-            if (!response.isSuccessful) {
-                val payload = response.body?.string().orEmpty()
-                val detail = parseErrorDetail(payload)
-                throw FableApiException(response.code, detail ?: "The server could not complete the request.")
-            }
-        }
-    }
-
-    private suspend inline fun <reified B> postNoContentWithBody(
-        url: HttpUrl,
-        body: B,
+    private suspend fun executeNoContent(
+        requestBuilder: Request.Builder,
         accessToken: String?
     ) = withContext(Dispatchers.IO) {
-        val requestBody = json.encodeToString(body).toRequestBody("application/json; charset=utf-8".toMediaType())
-        val requestBuilder = Request.Builder().url(url).post(requestBody)
-        accessToken?.takeIf(String::isNotBlank)?.let { requestBuilder.header("Authorization", "Bearer $it") }
-        client.newCall(requestBuilder.build()).execute().use { response ->
+        accessToken?.takeIf(String::isNotBlank)?.let { token ->
+            requestBuilder.header("Authorization", "Bearer $token")
+        }
+        client.newCall(requestBuilder.build()).awaitResponse().use { response ->
             if (!response.isSuccessful) {
                 val payload = response.body?.string().orEmpty()
-                val detail = parseErrorDetail(payload)
+                val detail = parseApiErrorDetail(json, payload)
                 throw FableApiException(response.code, detail ?: "The server could not complete the request.")
             }
         }
     }
-
-    private fun parseErrorDetail(payload: String): String? = runCatching {
-        val element = json.parseToJsonElement(payload)
-        val detail = (element as? JsonObject)?.get("detail") ?: return null
-        when (detail) {
-            is JsonPrimitive -> detail.content.takeIf(String::isNotBlank)
-            is JsonArray -> detail
-                .mapNotNull { item ->
-                    (item as? JsonObject)?.get("msg")?.let { (it as? JsonPrimitive)?.content }
-                        ?: (item as? JsonPrimitive)?.content
-                }
-                .filter(String::isNotBlank)
-                .joinToString("; ")
-                .takeIf(String::isNotBlank)
-            else -> null
-        }
-    }.getOrNull()
 }
 
 class FableApiException(val statusCode: Int, message: String) : Exception(message)

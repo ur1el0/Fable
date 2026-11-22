@@ -7,6 +7,7 @@ import com.example.fable.data.local.FableDatabase
 import com.example.fable.data.local.SharedPreferencesReaderPreferencesRepository
 import com.example.fable.data.local.SecureSessionStore
 import com.example.fable.data.remote.FableApiService
+import com.example.fable.data.remote.FableHttpClientFactory
 import com.example.fable.data.remote.MangaApiService
 import com.example.fable.data.repository.RemoteAccountRepository
 import com.example.fable.data.repository.RoomReadingStatsRepository
@@ -17,6 +18,7 @@ import com.example.fable.domain.repository.ReadingStatsRepository
 import com.example.fable.domain.repository.ReaderPreferencesRepository
 import com.example.fable.domain.repository.StoryRepository
 import com.example.fable.domain.repository.WriterDraftRepository
+import kotlinx.serialization.json.Json
 
 class FableApplication : Application() {
     lateinit var sessionStore: SecureSessionStore
@@ -51,11 +53,19 @@ class FableApplication : Application() {
         ).build()
         sessionStore = SecureSessionStore(applicationContext)
         deviceIdentityStore = DeviceIdentityStore(applicationContext)
+        val httpClient = FableHttpClientFactory.create()
+        val json = Json { ignoreUnknownKeys = true }
         apiService = FableApiService(
             baseUrl = BuildConfig.FABLE_API_BASE_URL,
+            client = httpClient,
+            json = json,
             accessTokenProvider = sessionStore::readAccessToken
         )
-        mangaApiService = MangaApiService(BuildConfig.FABLE_API_BASE_URL)
+        mangaApiService = MangaApiService(
+            baseUrl = BuildConfig.FABLE_API_BASE_URL,
+            client = httpClient,
+            json = json
+        )
         storyRepository = RoomStoryRepository(
             api = apiService,
             dao = database.storyDao(),
