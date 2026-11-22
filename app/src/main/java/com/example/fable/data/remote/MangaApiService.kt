@@ -24,11 +24,19 @@ private val MANGADEX_PAGE_PATTERN = Regex(
 private val MANGADEX_PATH_SEGMENT_PATTERN = Regex("[A-Za-z0-9._-]+")
 
 class MangaApiService(
-    baseUrl: String,
+    private val baseUrlProvider: () -> String,
     private val client: OkHttpClient = FableHttpClientFactory.create(),
     private val json: Json = Json { ignoreUnknownKeys = true }
 ) {
-    private val baseUrl: HttpUrl? = baseUrl.takeIf(String::isNotBlank)?.toHttpUrlOrNull()
+    constructor(
+        baseUrl: String,
+        client: OkHttpClient = FableHttpClientFactory.create(),
+        json: Json = Json { ignoreUnknownKeys = true }
+    ) : this(
+        baseUrlProvider = { baseUrl },
+        client = client,
+        json = json
+    )
 
     suspend fun fetchMangaStories(
         search: String? = null,
@@ -115,12 +123,15 @@ class MangaApiService(
         return if (valid) segments else null
     }
 
-    private fun url(vararg segments: String, query: HttpUrl.Builder.() -> Unit = {}): HttpUrl =
-        (baseUrl ?: throw FableApiException(0, "Manga API URL is not configured."))
+    private fun url(vararg segments: String, query: HttpUrl.Builder.() -> Unit = {}): HttpUrl {
+        val resolvedBaseUrl = baseUrlProvider().takeIf(String::isNotBlank)?.toHttpUrlOrNull()
+            ?: throw FableApiException(0, "Manga API URL is not configured.")
+        return resolvedBaseUrl
             .newBuilder()
             .addPathSegments(segments.joinToString("/"))
             .apply(query)
             .build()
+    }
 
     private suspend inline fun <reified T> get(url: HttpUrl): T = withContext(Dispatchers.IO) {
         client.newCall(Request.Builder().url(url).get().build()).awaitResponse().use { response ->

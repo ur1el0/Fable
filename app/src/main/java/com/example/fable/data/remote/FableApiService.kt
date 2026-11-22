@@ -34,12 +34,22 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 
 class FableApiService(
-    baseUrl: String,
+    private val baseUrlProvider: () -> String,
     private val client: OkHttpClient = FableHttpClientFactory.create(),
     private val json: Json = Json { ignoreUnknownKeys = true },
     private val accessTokenProvider: () -> String? = { null }
 ) : ReadingStatsRemoteDataSource {
-    private val baseUrl: HttpUrl? = baseUrl.takeIf(String::isNotBlank)?.toHttpUrlOrNull()
+    constructor(
+        baseUrl: String,
+        client: OkHttpClient = FableHttpClientFactory.create(),
+        json: Json = Json { ignoreUnknownKeys = true },
+        accessTokenProvider: () -> String? = { null }
+    ) : this(
+        baseUrlProvider = { baseUrl },
+        client = client,
+        json = json,
+        accessTokenProvider = accessTokenProvider
+    )
 
     suspend fun fetchHealth(): HealthDto = get(url("health"), accessToken = null)
 
@@ -159,12 +169,15 @@ class FableApiService(
         accessToken
     )
 
-    private fun url(vararg segments: String, query: HttpUrl.Builder.() -> Unit = {}): HttpUrl =
-        (baseUrl ?: throw FableApiException(0, "Fable API URL is not configured."))
+    private fun url(vararg segments: String, query: HttpUrl.Builder.() -> Unit = {}): HttpUrl {
+        val resolvedBaseUrl = baseUrlProvider().takeIf(String::isNotBlank)?.toHttpUrlOrNull()
+            ?: throw FableApiException(0, "Fable API URL is not configured.")
+        return resolvedBaseUrl
             .newBuilder()
             .addPathSegments(segments.joinToString("/"))
             .apply(query)
             .build()
+    }
 
     private suspend inline fun <reified T> get(
         url: HttpUrl,

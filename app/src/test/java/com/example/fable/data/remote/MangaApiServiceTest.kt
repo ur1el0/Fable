@@ -153,6 +153,22 @@ class MangaApiServiceTest {
         }
     }
 
+    @Test
+    fun baseUrlProviderResolvesDynamicHostForMangaRequests() = runTest {
+        val recorder = JsonResponseInterceptor(body = "[]")
+        var currentBaseUrl = "http://10.0.2.2:8001/api/v1/"
+        val service = MangaApiService(
+            baseUrlProvider = { currentBaseUrl },
+            client = OkHttpClient.Builder().addInterceptor(recorder).build()
+        )
+
+        service.fetchMangaStories()
+        currentBaseUrl = "https://fable-api-cbo8.onrender.com/api/v1/"
+        service.fetchMangaStories()
+
+        assertEquals(listOf("10.0.2.2", "fable-api-cbo8.onrender.com"), recorder.requests.map { it.url.host })
+    }
+
     private fun service(interceptor: JsonResponseInterceptor) = MangaApiService(
         baseUrl = "https://fable-api.test/api/v1/",
         client = OkHttpClient.Builder().addInterceptor(interceptor).build()

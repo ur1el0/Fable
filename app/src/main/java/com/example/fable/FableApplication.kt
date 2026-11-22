@@ -2,6 +2,7 @@ package com.example.fable
 
 import android.app.Application
 import androidx.room.Room
+import com.example.fable.data.local.DebugServerConfigStore
 import com.example.fable.data.local.DeviceIdentityStore
 import com.example.fable.data.local.FableDatabase
 import com.example.fable.data.local.SharedPreferencesReaderPreferencesRepository
@@ -16,6 +17,7 @@ import com.example.fable.data.repository.RoomWriterDraftRepository
 import com.example.fable.domain.repository.AccountRepository
 import com.example.fable.domain.repository.ReadingStatsRepository
 import com.example.fable.domain.repository.ReaderPreferencesRepository
+import com.example.fable.domain.repository.ServerConfigRepository
 import com.example.fable.domain.repository.StoryRepository
 import com.example.fable.domain.repository.WriterDraftRepository
 import kotlinx.serialization.json.Json
@@ -24,6 +26,8 @@ class FableApplication : Application() {
     lateinit var sessionStore: SecureSessionStore
         private set
     lateinit var deviceIdentityStore: DeviceIdentityStore
+        private set
+    lateinit var serverConfigRepository: ServerConfigRepository
         private set
     lateinit var apiService: FableApiService
         private set
@@ -53,16 +57,21 @@ class FableApplication : Application() {
         ).build()
         sessionStore = SecureSessionStore(applicationContext)
         deviceIdentityStore = DeviceIdentityStore(applicationContext)
+        serverConfigRepository = DebugServerConfigStore(
+            context = applicationContext,
+            defaultBaseUrl = BuildConfig.FABLE_API_BASE_URL,
+            isRuntimeSwitchEnabled = BuildConfig.DEBUG
+        )
         val httpClient = FableHttpClientFactory.create()
         val json = Json { ignoreUnknownKeys = true }
         apiService = FableApiService(
-            baseUrl = BuildConfig.FABLE_API_BASE_URL,
+            baseUrlProvider = serverConfigRepository::currentBaseUrl,
             client = httpClient,
             json = json,
             accessTokenProvider = sessionStore::readAccessToken
         )
         mangaApiService = MangaApiService(
-            baseUrl = BuildConfig.FABLE_API_BASE_URL,
+            baseUrlProvider = serverConfigRepository::currentBaseUrl,
             client = httpClient,
             json = json
         )

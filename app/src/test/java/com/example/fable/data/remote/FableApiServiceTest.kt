@@ -480,6 +480,25 @@ class FableApiServiceTest {
         assertEquals("0", request.url.queryParameter("offset"))
     }
 
+    @Test
+    fun baseUrlProviderSwitchesTargetHostDynamicallyAcrossRequests() = runTest {
+        val recorder = JsonResponseInterceptor(
+            body = """{"status":"healthy","database":"connected","timestamp_utc":"2026-11-07T12:45:16Z"}"""
+        )
+        var currentBaseUrl = "http://10.0.2.2:8001/api/v1/"
+        val service = FableApiService(
+            baseUrlProvider = { currentBaseUrl },
+            client = OkHttpClient.Builder().addInterceptor(recorder).build()
+        )
+
+        service.fetchHealth()
+        currentBaseUrl = "https://fable-api-cbo8.onrender.com/api/v1/"
+        service.fetchHealth()
+
+        val hosts = recorder.requests.map { it.url.host }
+        assertEquals(listOf("10.0.2.2", "fable-api-cbo8.onrender.com"), hosts)
+    }
+
     private fun service(interceptor: JsonResponseInterceptor) = FableApiService(
         baseUrl = "https://fable.test/api/v1/",
         client = OkHttpClient.Builder().addInterceptor(interceptor).build()
