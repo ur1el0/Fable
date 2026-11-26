@@ -1,5 +1,6 @@
 package com.example.fable.ui.viewmodel
 
+import com.example.fable.data.remote.FableApiException
 import com.example.fable.domain.model.Story
 import com.example.fable.domain.model.UserProfile
 import com.example.fable.domain.repository.AccountRepository
@@ -23,13 +24,16 @@ class AccountViewModelTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         try {
             val story = story("owned-story")
-            val viewModel = AccountViewModel(FakeAccountRepository { Result.success(listOf(story)) })
+            val viewModel = AccountViewModel(
+                FakeAccountRepository(loadStories = { Result.success(listOf(story)) })
+            )
 
             viewModel.signIn("reader@example.com", "password")
             advanceUntilIdle()
 
             assertEquals(listOf(story), viewModel.uiState.value.publishedStories)
             assertEquals(false, viewModel.uiState.value.isLoadingPublishedStories)
+            assertEquals("account-1", viewModel.uiState.value.localAccountId)
         } finally {
             Dispatchers.resetMain()
         }
@@ -40,7 +44,9 @@ class AccountViewModelTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         try {
             val pendingStories = CompletableDeferred<Result<List<Story>>>()
-            val viewModel = AccountViewModel(FakeAccountRepository { pendingStories.await() })
+            val viewModel = AccountViewModel(
+                FakeAccountRepository(loadStories = { pendingStories.await() })
+            )
 
             viewModel.signIn("reader@example.com", "password")
             runCurrent()
@@ -50,18 +56,149 @@ class AccountViewModelTest {
             advanceUntilIdle()
 
             assertNull(viewModel.uiState.value.user)
+            assertNull(viewModel.uiState.value.localAccountId)
             assertEquals(emptyList<Story>(), viewModel.uiState.value.publishedStories)
         } finally {
             Dispatchers.resetMain()
         }
     }
 
-    private class FakeAccountRepository(
-        private val loadStories: suspend () -> Result<List<Story>>
-    ) : AccountRepository {
-        override fun hasSession() = false
+    @Test
+    fun storedAccountIdIsAvailableBeforeProfileRefreshCompletes() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val viewModel = AccountViewModel(
+                FakeAccountRepository(
+                    loadStories = { Result.success(emptyList()) },
+                    hasStoredSession = true,
+                    storedAccountId = "account-1"
+                )
+            )
 
-        override suspend fun currentUser() = Result.success(USER)
+            assertEquals("account-1", viewModel.uiState.value.localAccountId)
+            advanceUntilIdle()
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test
+    fun unauthorizedProfileRefreshClearsStoredLocalAccountAndUser() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val viewModel = AccountViewModel(
+                FakeAccountRepository(
+                    loadStories = { Result.success(emptyList()) },
+                    currentUserResult = { Result.failure(FableApiException(401, "Invalid token")) },
+                    hasStoredSession = true,
+                    storedAccountId = "account-1"
+                )
+            )
+            advanceUntilIdle()
+
+            assertNull(viewModel.uiState.value.user)
+            assertNull(viewModel.uiState.value.localAccountId)
+            assertEquals(emptyList<Story>(), viewModel.uiState.value.publishedStories)
+            assertEquals("Your session expired. Sign in again.", viewModel.uiState.value.errorMessage)
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test
+    fun refreshPublishedStoriesReloadsStoriesForSignedInUser() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val stories = mutableListOf(story("first-story"))
+            val viewModel = AccountViewModel(
+                FakeAccountRepository(loadStories = { Result.success(stories.toList()) })
+            )
+            viewModel.signIn("reader@example.com", "password")
+            advanceUntilIdle()
+            assertEquals(listOf(story("first-story")), viewModel.uiState.value.publishedStories)
+
+            stories += story("second-story")
+            viewModel.refreshPublishedStories()
+            advanceUntilIdle()
+
+            assertEquals(
+                listOf(story("first-story"), story("second-story")),
+                viewModel.uiState.value.publishedStories
+            )
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test
+    fun deleteAccountInvokesCleanupCallbackAndClearsSessionOnlyOnSuccess() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val repository = FakeAccountRepository(
+                loadStories = { Result.success(listOf(story("owned-story"))) },
+                deleteAccountResult = Result.failure(IllegalStateException("Server unavailable"))
+            )
+            val viewModel = AccountViewModel(repository)
+            viewModel.signIn("reader@example.com", "password")
+            advanceUntilIdle()
+
+            var purgedUserId: String? = null
+            viewModel.deleteAccount { purgedUserId = it }
+            advanceUntilIdle()
+
+            assertNull(purgedUserId)
+            assertEquals("account-1", viewModel.uiState.value.user?.id)
+            assertEquals("Server unavailable", viewModel.uiState.value.errorMessage)
+
+            repository.nextDeleteAccountResult = Result.success(Unit)
+            viewModel.deleteAccount { purgedUserId = it }
+            advanceUntilIdle()
+
+            assertEquals("account-1", purgedUserId)
+            assertNull(viewModel.uiState.value.user)
+            assertNull(viewModel.uiState.value.localAccountId)
+            assertEquals("Account deleted.", viewModel.uiState.value.noticeMessage)
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test
+    fun clearSessionForServerSwitchResetsSignedInAccount() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val repository = FakeAccountRepository(loadStories = { Result.success(emptyList()) })
+            val viewModel = AccountViewModel(repository)
+            viewModel.signIn("reader@example.com", "password")
+            advanceUntilIdle()
+
+            viewModel.clearSessionForServerSwitch()
+
+            assertEquals(1, repository.clearedLocalSessions)
+            assertNull(viewModel.uiState.value.user)
+            assertNull(viewModel.uiState.value.localAccountId)
+            assertEquals("Server updated. Sign in to sync your account.", viewModel.uiState.value.noticeMessage)
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
+    private class FakeAccountRepository(
+        private val loadStories: suspend () -> Result<List<Story>>,
+        private val currentUserResult: suspend () -> Result<UserProfile> = { Result.success(USER) },
+        private val hasStoredSession: Boolean = false,
+        private val storedAccountId: String? = null,
+        deleteAccountResult: Result<Unit> = Result.success(Unit)
+    ) : AccountRepository {
+        var nextDeleteAccountResult: Result<Unit> = deleteAccountResult
+        var clearedLocalSessions = 0
+            private set
+
+        override fun hasSession() = hasStoredSession
+
+        override fun currentAccountId() = storedAccountId
+
+        override suspend fun currentUser() = currentUserResult()
 
         override suspend fun myStories() = loadStories()
 
@@ -77,6 +214,12 @@ class AccountViewModelTest {
         override suspend fun confirmPasswordReset(token: String, newPassword: String) = Result.success(Unit)
 
         override suspend fun signOut() = Result.success(Unit)
+
+        override suspend fun deleteAccount() = nextDeleteAccountResult
+
+        override fun clearLocalSession() {
+            clearedLocalSessions += 1
+        }
     }
 
     private fun story(id: String) = Story(

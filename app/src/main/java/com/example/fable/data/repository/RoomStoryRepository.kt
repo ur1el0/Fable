@@ -9,18 +9,23 @@ import com.example.fable.data.local.toEntity
 import com.example.fable.data.local.toShelfState
 import com.example.fable.data.local.toSyncDto
 import com.example.fable.data.remote.FableApiService
+import com.example.fable.data.remote.FableApiException
+import com.example.fable.data.remote.MangaApiService
 import com.example.fable.data.remote.dto.ChapterDto
 import com.example.fable.data.remote.dto.CreateStoryRequestDto
 import com.example.fable.data.remote.dto.ShelfSyncItemDto
 import com.example.fable.data.remote.dto.ShelfSyncRequestDto
 import com.example.fable.data.remote.dto.StoryDto
+import com.example.fable.data.remote.dto.UpdateStoryRequestDto
 import com.example.fable.data.remote.dto.toDomain
 import com.example.fable.domain.model.Chapter
+import com.example.fable.domain.model.ContentFormat
 import com.example.fable.domain.model.GenreCategory
 import com.example.fable.domain.model.Story
 import com.example.fable.domain.model.SourceProvider
 import com.example.fable.domain.model.UpdateFeed
 import com.example.fable.domain.model.Writer
+import com.example.fable.domain.reading.ReaderPagePacker
 import com.example.fable.domain.repository.StoryRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -38,7 +43,8 @@ class RoomStoryRepository(
     private val api: FableApiService,
     private val dao: StoryDao,
     private val deviceId: String,
-    private val accessTokenProvider: () -> String?
+    private val accessTokenProvider: () -> String?,
+    private val mangaApi: MangaApiService? = null
 ) : StoryRepository {
     private val activeShelfOwnerId = MutableStateFlow(GUEST_OWNER_ID)
     private val shelfMutationMutex = Mutex()
@@ -64,6 +70,11 @@ class RoomStoryRepository(
             }.sortedByDescending { states[it.id]?.updatedAtUtc.orEmpty() }
         }
 
+    override fun observeDownloadedStoryIds(): Flow<Set<String>> =
+        dao.observeDownloadedStoryIds()
+            .map(List<String>::toSet)
+            .distinctUntilChanged()
+
     override fun observeStory(storyId: String): Flow<Story?> =
         combine(dao.observeStory(storyId), currentShelfStates) { entity, states ->
             entity?.toDomain(states[storyId])
@@ -84,14 +95,24 @@ class RoomStoryRepository(
         val existing = dao.getStory(storyId)
         val provider = SourceProvider.fromWireValue(existing?.sourceProvider.orEmpty())
         val gutenbergId = resolveGutenbergId(existing, storyId)
-        if (existing != null && (provider == SourceProvider.GUTENBERG || gutenbergId != null)) {
+        if (
+            existing != null && (
+                provider == SourceProvider.GUTENBERG ||
+                    gutenbergId != null ||
+                    (provider == SourceProvider.STANDARD_EBOOKS && existing.synopsis.isNotBlank())
+                )
+        ) {
             return@runCatching
         }
         val remote = when {
             provider == SourceProvider.GUTENBERG || gutenbergId != null ->
                 gutenbergId?.let { api.fetchGutenbergStory(it) } ?: api.fetchStory(storyId)
+            provider == SourceProvider.STANDARD_EBOOKS ->
+                existing?.providerId?.takeIf(String::isNotBlank)?.let { api.fetchStandardEbooksStory(it) }
+                    ?: api.fetchStory(storyId)
             provider == SourceProvider.MANGADEX ->
-                existing?.providerId?.let { api.fetchMangaStory(it) } ?: api.fetchStory(storyId)
+                existing?.providerId?.let { mangaApi().fetchMangaStory(it) }
+                    ?: throw FableApiException(0, "MangaDex identifier is missing from the saved story.")
             else -> api.fetchStory(storyId)
         }
         val targetStoryId = remote.id.ifBlank { storyId }
@@ -116,8 +137,12 @@ class RoomStoryRepository(
         val remoteChapters = when {
             provider == SourceProvider.GUTENBERG || gutenbergId != null ->
                 gutenbergId?.let { api.fetchGutenbergChapters(it) } ?: api.fetchChapters(storyId)
+            provider == SourceProvider.STANDARD_EBOOKS ->
+                story?.providerId?.takeIf(String::isNotBlank)?.let { api.fetchStandardEbooksChapters(it) }
+                    ?: api.fetchChapters(storyId)
             provider == SourceProvider.MANGADEX ->
-                story?.providerId?.let { api.fetchMangaChapters(it, limit = 50) } ?: api.fetchChapters(storyId)
+                story?.providerId?.let { mangaApi().fetchMangaChapters(it, limit = 50) }
+                    ?: throw FableApiException(0, "MangaDex identifier is missing from the saved story.")
             else -> api.fetchChapters(storyId)
         }
         val chapters = mergeChapters(storyId, remoteChapters)
@@ -143,8 +168,21 @@ class RoomStoryRepository(
                 dao.replaceChapters(storyId, chapters)
                 hydrateStoryFromChapters(storyId, chapters)
             }
-            provider == SourceProvider.MANGADEX && !story?.providerId.isNullOrBlank() -> {
-                val remoteChapters = api.fetchMangaChapters(requireNotNull(story?.providerId), limit = 50)
+            provider == SourceProvider.STANDARD_EBOOKS -> {
+                val bookId = story?.providerId?.takeIf(String::isNotBlank)
+                    ?: throw FableApiException(0, "Standard Ebooks identifier is missing from the saved story.")
+                val remoteChapters = api.fetchStandardEbooksChapters(bookId)
+                if (remoteChapters.none { it.chapterNumber == chapterNumber }) {
+                    error("Chapter $chapterNumber is not available.")
+                }
+                val chapters = mergeChapters(storyId, remoteChapters)
+                dao.replaceChapters(storyId, chapters)
+                hydrateStoryFromChapters(storyId, chapters)
+            }
+            provider == SourceProvider.MANGADEX -> {
+                val mangaId = story?.providerId?.takeIf(String::isNotBlank)
+                    ?: throw FableApiException(0, "MangaDex identifier is missing from the saved story.")
+                val remoteChapters = mangaApi().fetchMangaChapters(mangaId, limit = 50)
                 if (remoteChapters.none { it.chapterNumber == chapterNumber }) {
                     error("Chapter $chapterNumber is not available.")
                 }
@@ -161,8 +199,42 @@ class RoomStoryRepository(
         }
     }
 
-    override suspend fun searchGutenberg(topic: String?, search: String?): Result<List<Story>> = runCatching {
-        val remote = api.fetchGutenbergStories(topic = topic, search = search)
+    override suspend fun downloadStoryForOffline(storyId: String): Result<Int> = runCatching {
+        refreshStory(storyId).getOrThrow()
+        refreshChapters(storyId).getOrThrow()
+        val story = dao.getStory(storyId)
+        var chapters = dao.observeChapters(storyId).first()
+        if (ContentFormat.fromWireValue(story?.contentFormat.orEmpty()) != ContentFormat.MANGA) {
+            for (chapter in chapters) {
+                if (chapter.content.isBlank()) {
+                    refreshChapter(storyId, chapter.chapterNumber).getOrThrow()
+                }
+            }
+            chapters = dao.observeChapters(storyId).first()
+        }
+        val cachedCount = chapters.count { it.content.isNotBlank() || it.pageUrls.isNotEmpty() }
+        when {
+            cachedCount > 0 -> cachedCount
+            story?.content?.isNotBlank() == true -> 1
+            else -> error("No readable chapters are available to save offline.")
+        }
+    }
+
+    override suspend fun removeOfflineChapters(storyId: String): Result<Unit> = runCatching {
+        dao.clearOfflineCache(storyId)
+    }
+
+    override suspend fun searchGutenberg(topic: String?, search: String?): Result<List<Story>> =
+        searchGutenberg(topic, search, null)
+
+    override suspend fun searchGutenberg(topic: String?, search: String?, sort: String?): Result<List<Story>> = runCatching {
+        val remote = api.fetchGutenbergStories(topic = topic, search = search, sort = sort)
+        val persisted = persistStories(remote)
+        persisted.map { it.toDomain() }
+    }
+
+    override suspend fun searchStandardEbooks(topic: String?, search: String?): Result<List<Story>> = runCatching {
+        val remote = api.fetchStandardEbooksStories(topic = topic, search = search)
         val persisted = persistStories(remote)
         persisted.map { it.toDomain() }
     }
@@ -172,7 +244,11 @@ class RoomStoryRepository(
         limit: Int,
         offset: Int
     ): Result<List<Story>> = runCatching {
-        val remote = api.fetchMangaStories(search = search, limit = limit.coerceIn(1, 50), offset = offset.coerceAtLeast(0))
+        val remote = mangaApi().fetchMangaStories(
+            search = search,
+            limit = limit.coerceIn(1, 50),
+            offset = offset.coerceAtLeast(0)
+        )
         val persisted = persistStories(remote)
         persisted.map { it.toDomain() }
     }
@@ -180,15 +256,16 @@ class RoomStoryRepository(
     override suspend fun publishStory(
         title: String,
         genre: String,
+        chapterTitle: String,
         synopsis: String,
         content: String
     ): Result<Story> = runCatching {
-        val readTimeMinutes = (content.trim().split(Regex("\\s+")).size / 200).coerceAtLeast(1)
+        val readTimeMinutes = (ReaderPagePacker.countWords(content) / 200).coerceAtLeast(1)
         val remote = api.createStory(
             CreateStoryRequestDto(
                 title = title.trim(),
                 genre = genre.trim(),
-                chapter = "Chapter 1",
+                chapter = chapterTitle.trim().ifBlank { "Chapter 1" },
                 synopsis = synopsis.trim(),
                 content = content.trim(),
                 readTimeMinutes = readTimeMinutes
@@ -197,6 +274,64 @@ class RoomStoryRepository(
         val existing = dao.getStory(remote.id)
         dao.upsertStories(listOf(remote.toEntity(existing)))
         remote.toDomain()
+    }
+
+    override suspend fun updateStory(
+        storyId: String,
+        title: String,
+        genre: String,
+        chapterTitle: String,
+        synopsis: String,
+        content: String
+    ): Result<Story> = runCatching {
+        val trimmedContent = content.trim()
+        val trimmedChapterTitle = chapterTitle.trim().ifBlank { "Chapter 1" }
+        val readTimeMinutes = (ReaderPagePacker.countWords(trimmedContent) / 200).coerceAtLeast(1)
+        val remote = api.updateStory(
+            storyId = storyId,
+            request = UpdateStoryRequestDto(
+                title = title.trim(),
+                genre = genre.trim(),
+                chapter = trimmedChapterTitle,
+                synopsis = synopsis.trim(),
+                content = trimmedContent,
+                readTimeMinutes = readTimeMinutes
+            )
+        )
+        val existing = dao.getStory(storyId)
+        val targetStoryId = remote.id.ifBlank { storyId }
+        dao.upsertStories(listOf(remote.copy(id = targetStoryId).toEntity(existing)))
+        val remoteChapters = remote.chapters.orEmpty()
+        if (remoteChapters.isNotEmpty()) {
+            val merged = mergeChapters(targetStoryId, remoteChapters)
+            dao.replaceChapters(targetStoryId, merged)
+            hydrateStoryFromChapters(targetStoryId, merged)
+        } else {
+            val existingChapterOne = dao.getChapter(targetStoryId, 1)
+            if (existingChapterOne != null) {
+                dao.upsertChapters(
+                    listOf(
+                        existingChapterOne.copy(
+                            title = remote.chapter.ifBlank { trimmedChapterTitle },
+                            content = remote.content.ifBlank { trimmedContent },
+                            wordCount = ReaderPagePacker.countWords(remote.content.ifBlank { trimmedContent })
+                        )
+                    )
+                )
+            }
+        }
+        remote.copy(id = targetStoryId).toDomain()
+    }
+
+    override suspend fun deleteStory(storyId: String): Result<Unit> = runCatching {
+        api.deleteStory(storyId)
+        dao.deleteStoryAndShelfStates(storyId)
+    }
+
+    override suspend fun purgeUserData(ownerId: String): Result<Unit> = runCatching {
+        if (ownerId.isNotBlank() && ownerId != GUEST_OWNER_ID) {
+            dao.purgeAccountData(ownerId)
+        }
     }
 
     override suspend fun setShelfOwner(ownerId: String?) {
@@ -319,7 +454,7 @@ class RoomStoryRepository(
             if (chapter.wordCount > 0) {
                 chapter.wordCount
             } else {
-                chapter.content.trim().split(Regex("\\s+")).count(String::isNotBlank)
+                ReaderPagePacker.countWords(chapter.content)
             }
         }
         val computedReadTime = if (totalWords > 0) (totalWords / 200).coerceAtLeast(1) else 0
@@ -349,6 +484,9 @@ class RoomStoryRepository(
 
     private fun resolveGutenbergId(story: StoryEntity?, storyId: String): Int? =
         story?.providerId?.toIntOrNull() ?: gutenbergIdForStoryId(storyId)
+
+    private fun mangaApi(): MangaApiService =
+        mangaApi ?: throw FableApiException(0, "Manga API URL is not configured.")
 
     override suspend fun toggleBookmark(storyId: String): Result<Boolean> = runCatching {
         shelfMutationMutex.withLock {

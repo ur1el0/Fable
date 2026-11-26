@@ -1,93 +1,30 @@
-# 06 Download Manager & Background Pipeline (WorkManager)
+# 06 Offline Chapter Caching & Download Management
 
-## 1. Background Download Architecture
-
-Fable offloads chapter downloading to **AndroidX WorkManager**. WorkManager provides guaranteed task execution, survives app process termination and device reboots, and respects system constraints (battery and unmetered Wi-Fi).
-
-```
-┌────────────────────────────────────────────────────────┐
-│                        User UI                         │
-│  "Download Next 10 Chapters" or "Download All Unread"  │
-└───────────────────────────┬────────────────────────────┘
-                            │ Enqueues Download Work
-                            ▼
-┌────────────────────────────────────────────────────────┐
-│                  WorkManager Enqueue                   │
-│  - Unique Work Name: "fable_download_queue"            │
-│  - Policy: ExistingWorkPolicy.APPEND_OR_REPLACE        │
-│  - Constraints: Network Connected, Battery Not Low     │
-└───────────────────────────┬────────────────────────────┘
-                            │ Dispatches
-                            ▼
-┌────────────────────────────────────────────────────────┐
-│               DownloadWorker (CoroutineWorker)         │
-│  - Runs on Dispatchers.IO                              │
-│  - Posts Foreground Notification (Android 14+ DataSync)│
-│  - Fetches HTML via Source Extractor                   │
-│  - Sanitizes content via Jsoup                         │
-│  - Writes to Scoped Storage: context.filesDir/chapters/│
-│  - Updates ChapterEntity: downloadState = DOWNLOADED   │
-└────────────────────────────────────────────────────────┘
-```
+> **Architecture Note (ADR 009):** Earlier prototype documents proposed a WorkManager HTML-scraping queue writing `.fbl` files to `context.filesDir`. Under the shared Fable product architecture (ADR 009 & ADR 010), chapter content is fetched as structured JSON from the shared Fable API and persisted directly in **Room (`chapters` table in `FableDatabase` v6)**.
 
 ---
 
-## 2. Android 14+ Foreground Service Integration
+## 1. On-Demand & Explicit Offline Caching Pipeline
 
-Batch downloads are long-running operations. To ensure Android does not terminate the background process when the user navigates away, `DownloadWorker` promotes itself to a Foreground Service with an explicit service type:
+Fable Android supports two complementary offline caching mechanisms backed by `RoomStoryRepository`:
 
-### Manifest Configuration (`AndroidManifest.xml`)
-```xml
-<service
-    android:name="androidx.work.impl.foreground.SystemForegroundService"
-    android:foregroundServiceType="dataSync"
-    tools:node="merge" />
-```
+1. **Automatic On-Demand Chapter Caching**:
+   - Opening a story in `StoryReaderScreen` triggers `RoomStoryRepository.refreshStory(storyId)` (and `fetchMangaChapterPages` for `ContentFormat.COMIC`).
+   - Fetched prose chapter bodies (`ChapterEntity.content`) and comic page descriptors (`ChapterEntity.pagesJson`) are saved in Room inside a transaction.
+   - Reopening the story offline renders immediately from Room.
 
-### Worker Implementation (`DownloadWorker.kt`)
-```kotlin
-override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
-    val chapterId = inputData.getString("chapter_id") ?: return@withContext Result.failure()
-    val bookId = inputData.getString("book_id") ?: return@withContext Result.failure()
-
-    // 1. Establish Foreground Notification
-    val foregroundInfo = createForegroundInfo(currentProgress = 0)
-    setForeground(foregroundInfo)
-
-    // 2. Fetch and sanitize chapter
-    val chapterContent = sourceRepository.fetchChapterContent(chapterUrl)
-    val sanitizedContent = HtmlSanitizer.clean(chapterContent)
-
-    // 3. Write to Scoped Storage sandbox
-    val file = storageManager.saveChapterFile(bookId, chapterId, sanitizedContent)
-
-    // 4. Update Room Database state
-    chapterDao.updateDownloadState(chapterId, DownloadState.DOWNLOADED, file.absolutePath)
-
-    Result.success()
-}
-```
+2. **Explicit One-Tap Story Offline Download (`downloadStoryForOffline`)**:
+   - From `StoryDetailScreen` (`OfflineCacheCard`), the user can tap **Download for offline**.
+   - `CatalogViewModel.downloadStoryForOffline(storyId)` invokes `RoomStoryRepository.downloadStoryForOffline(storyId)`:
+     - For **Prose** stories (`FABLE`, `GUTENBERG`, `STANDARD_EBOOKS`), it hydrates all chapters from the provider's chapter endpoint and verifies that non-blank chapter content is stored in Room.
+     - For **Comic** stories (`MANGADEX`), it refreshes the chapter list and hydrates the page descriptor lists for the story's chapters.
+   - Once cached, `StoryDao.observeDownloadedStoryIds()` reactively emits the `storyId`, displaying an `"Offline"` badge on `StoryRow`, `LibraryScreen`, `ExploreScreen`, `ShelfScreen` (including the **Offline** shelf filter tab), and `StoryDetailScreen`.
 
 ---
 
-## 3. Scoped Storage & Path Traversal Guards
+## 2. Offline Cache Removal (`removeStoryOfflineCopy`)
 
-All chapter files are written strictly to app-specific internal storage (`context.filesDir`), ensuring complete data sandboxing:
+Users can reclaim local SQLite space without losing their reading progress or shelf bookmarks:
 
-```kotlin
-fun saveChapterFile(bookId: String, chapterId: String, content: String): File {
-    val bookDir = File(context.filesDir, "chapters/${sanitizeFilename(bookId)}")
-    if (!bookDir.exists()) bookDir.mkdirs()
-
-    val chapterFile = File(bookDir, "${sanitizeFilename(chapterId)}.fbl")
-    
-    // Canonical path verification against path traversal attacks
-    if (!chapterFile.canonicalPath.startsWith(bookDir.canonicalPath)) {
-        throw SecurityException("Path traversal attempt in chapter ID: $chapterId")
-    }
-    
-    chapterFile.writeText(content, Charsets.UTF_8)
-    return chapterFile
-}
-```
-
+- Tapping **Remove offline copy** in `StoryDetailScreen` calls `CatalogViewModel.removeStoryOfflineCopy(storyId)` $\rightarrow$ `RoomStoryRepository.removeStoryOfflineCopy(storyId)`.
+- `StoryDao.clearOfflineCache(storyId)` clears `content = ''` and `pagesJson = '[]'` on the story's `chapters` rows inside a transaction while preserving the `stories` metadata row and `shelf_states` progress.

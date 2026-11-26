@@ -1,48 +1,29 @@
 # 09 Security & Data Privacy Architecture
 
-## 1. Threat Modeling for an Offline Reader
+## 1. Local-First Privacy & Zero Third-Party Telemetry
 
-Although Fable is a client-side reader without a central user database, it interacts with untrusted external web novel servers and processes untrusted user-supplied or web-scraped content. The primary threat vectors are:
-
-1. **Malicious Script / HTML Injection:** Web novel pages containing hidden `<script>`, `<style>`, `<iframe>`, or JavaScript event handlers designed to steal local data or exploit Android WebView / text rendering components.
-2. **Directory Traversal (Path Traversal):** Maliciously crafted book titles or chapter IDs (e.g., `../../system/bin`) attempting to escape the app sandbox when saving files to disk.
-3. **Tracking & Telemetry Exfiltration:** Third-party tracking libraries profiling user reading habits, frequency, or device identifiers.
+- **No Analytics or Ad SDKs**: Fable Android includes zero third-party analytics, crash-tracking, or advertising SDKs.
+- **Account-Optional Reading**: Discovery, reading, offline chapter caching, in-book search, passage highlights, quote cards, and local writer drafts work without signing into an account (`__guest__` owner scope in Room).
+- **Complete Account Deletion (`DELETE /api/v1/auth/me`)**: Authenticated users can permanently delete their account from **Account → Delete account**. Upon server confirmation, `AccountViewModel` and `RemoteAccountRepository` purge local auth tokens, user-owned stories (`StoryDao.purgeAccountData`), account shelf states, and reading stats (`ReadingStatsDao.clearOwnerData`).
 
 ---
 
-## 2. Security Defense Implementations
+## 2. Transport Security & URL Validation
 
-### 2.1 Mandatory Jsoup HTML Sanitization
-All raw content fetched by source extractors is filtered through a strict whitelist before disk writing or rendering:
-- **Permitted Tags:** Structural formatting only (`<p>`, `<b>`, `<i>`, `<em>`, `<strong>`, `<br>`, `<h1>`-`<h6>`).
-- **Forbidden Tags:** Strictly removed (`<script>`, `<style>`, `<iframe>`, `<embed>`, `<object>`, `<form>`, `<input>`).
-- **Forbidden Attributes:** All inline script triggers (`onclick`, `onload`, `onerror`, `style`) are stripped.
+- **Release HTTPS Enforcement**:
+  - `AndroidManifest.xml` disables cleartext traffic in release builds, while `app/src/debug/res/xml/network_security_config.xml` permits local development traffic (`10.0.2.2`, `localhost`, LAN) strictly in debug builds.
+  - The Gradle task `:app:validateReleaseApiBaseUrl` fails any release build whose `FABLE_API_BASE_URL` does not start with `https://`, end with `/`, or points to a loopback/private address.
+- **Strict Server & Asset URL Validation (`ServerUrlValidator`, `MangaApiService`)**:
+  - `ServerUrlValidator` blocks embedded URL credentials (`user:pass@host`), non-HTTP(S) schemes, and invalid hosts.
+  - `MangaApiService.sanitizeHttpUrl` validates every remote cover and comic page URL via `toHttpUrlOrNull()`, rejecting malformed or non-HTTP(S) schemes before they reach Coil.
+- **Automatic `401 Unauthorized` Session Reset**:
+  - If an authenticated request receives `401 Unauthorized`, `RemoteAccountRepository` clears stale persisted credentials and transitions `sessionState` to `SignedOut` so the UI never remains stuck in a broken authenticated state.
 
-### 2.2 Scoped Storage & Canonical Path Verification
-All chapter text and cover assets reside strictly within `context.filesDir`. Path traversal is defended by verifying canonical paths:
-```kotlin
-fun assertSafePath(baseDir: File, targetFile: File) {
-    if (!targetFile.canonicalPath.startsWith(baseDir.canonicalPath)) {
-        throw SecurityException("Access denied: Path traversal attempt outside app sandbox.")
-    }
-}
-```
+---
 
-### 2.3 Zero Telemetry & Offline Sovereignty
-- Zero tracking or analytics SDKs are incorporated into Fable's dependencies.
-- No network requests are made on startup unless explicitly initiated by the user (searching a source or refreshing a catalog).
-- The Room database contains no remote identity tokens or advertiser IDs.
+## 3. SQLite / Room Injection Safety & Scoped File Sharing
 
-### 2.4 Android Network Security Configuration
-Cleartext HTTP traffic is blocked by default across all application layers in `res/xml/network_security_config.xml`:
-```xml
-<?xml version="1.0" encoding="utf-8"?>
-<network-security-config>
-    <base-config cleartextTrafficPermitted="false">
-        <trust-anchors>
-            <certificates src="system" />
-        </trust-anchors>
-    </base-config>
-</network-security-config>
-```
-
+- **Parameterized Room Queries**: All database queries in `StoryDao`, `ReadingStatsDao`, `WriterDraftDao`, and `HighlightDao` use Room compile-time verified parameterized SQL statements (`:storyId`, `:ownerId`).
+- **Scoped Quote Card Sharing (`FileProvider`)**:
+  - Generated PNG quote cards (`QuoteCardExporter`) are written exclusively to the app's private cache directory (`context.cacheDir/quote_cards/`) and shared with external apps via `androidx.core.content.FileProvider` (`res/xml/file_paths.xml`) with temporary `FLAG_GRANT_READ_URI_PERMISSION`.
+  - Fable Android never requests `READ_EXTERNAL_STORAGE`, `WRITE_EXTERNAL_STORAGE`, or `MANAGE_EXTERNAL_STORAGE`.

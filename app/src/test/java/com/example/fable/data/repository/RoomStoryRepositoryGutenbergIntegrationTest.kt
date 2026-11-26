@@ -6,9 +6,11 @@ import com.example.fable.data.local.StoryDao
 import com.example.fable.data.local.StoryEntity
 import com.example.fable.data.local.toEntity
 import com.example.fable.data.remote.FableApiService
+import com.example.fable.data.remote.MangaApiService
 import com.example.fable.data.remote.dto.StoryDto
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.test.runTest
@@ -63,8 +65,8 @@ class RoomStoryRepositoryGutenbergIntegrationTest {
                 )
             )
         )
-        val api = FableApiService(
-            baseUrl = "https://fable.test/api/v1/",
+        val mangaApi = MangaApiService(
+            baseUrl = "https://manga.test/api/v1/",
             client = OkHttpClient.Builder().addInterceptor(
                 Interceptor { chain ->
                     val request = chain.request()
@@ -87,11 +89,13 @@ class RoomStoryRepositoryGutenbergIntegrationTest {
                 }
             ).build()
         )
+        val api = FableApiService(baseUrl = "https://fable.test/api/v1/")
         val repository = RoomStoryRepository(
             api = api,
             dao = dao,
             deviceId = "device-test",
-            accessTokenProvider = { null }
+            accessTokenProvider = { null },
+            mangaApi = mangaApi
         )
 
         repository.refreshChapters(storyId).getOrThrow()
@@ -210,6 +214,185 @@ class RoomStoryRepositoryGutenbergIntegrationTest {
         assertEquals(2, secondSearch.single().totalChapters)
         assertEquals(21, secondSearch.single().readTimeMinutes)
         assertTrue(secondSearch.single().synopsis.startsWith("Alice was beginning to get very tired"))
+    }
+
+    @Test
+    fun standardEbooksDiscoveryAndChaptersPreserveProviderIdentityAlongsideGutenbergEdition() = runTest {
+        val gutenbergStoryId = "00000000-0000-0000-0000-000000000159"
+        val standardEbooksStoryId = "4e39ab55-d25a-52a0-ad55-832f2fc8da8e"
+        val dao = InMemoryStoryDao()
+        val requests = CopyOnWriteArrayList<String>()
+        val api = FableApiService(
+            baseUrl = "https://fable.test/api/v1/",
+            client = OkHttpClient.Builder().addInterceptor(
+                Interceptor { chain ->
+                    val request = chain.request()
+                    val path = request.url.encodedPath
+                    requests += path
+                    when (path) {
+                        "/api/v1/public/gutenberg" -> jsonResponse(
+                            request,
+                            200,
+                            """
+                            [
+                              {
+                                "id": "$gutenbergStoryId",
+                                "title": "Dracula",
+                                "author": "Bram Stoker",
+                                "genre": "Gothic",
+                                "synopsis": "Gutenberg edition.",
+                                "content": "",
+                                "readTimeMinutes": 650,
+                                "totalChapters": 0,
+                                "contentFormat": "PROSE",
+                                "sourceProvider": "GUTENBERG",
+                                "providerId": "345"
+                              }
+                            ]
+                            """.trimIndent()
+                        )
+                        "/api/v1/public/standard-ebooks" -> jsonResponse(
+                            request,
+                            200,
+                            """
+                            [
+                              {
+                                "id": "$standardEbooksStoryId",
+                                "title": "Dracula",
+                                "author": "Bram Stoker",
+                                "genre": "Horror",
+                                "synopsis": "Standard Ebooks edition.",
+                                "content": "",
+                                "readTimeMinutes": 700,
+                                "totalChapters": 0,
+                                "contentFormat": "PROSE",
+                                "sourceProvider": "STANDARD_EBOOKS",
+                                "providerId": "bram-stoker/dracula"
+                              }
+                            ]
+                            """.trimIndent()
+                        )
+                        "/api/v1/public/standard-ebooks/chapters" -> {
+                            assertEquals("bram-stoker/dracula", request.url.queryParameter("book_id"))
+                            jsonResponse(
+                                request,
+                                200,
+                                """
+                                [
+                                  {
+                                    "id": "se-dracula-ch-1",
+                                    "storyId": "$standardEbooksStoryId",
+                                    "chapterNumber": 1,
+                                    "title": "I: Jonathan Harker's Journal",
+                                    "content": "Left Munich at 8:35 P.M. on 1st May, arriving at Vienna early next morning.",
+                                    "wordCount": 1400,
+                                    "createdAtUtc": "2026-11-16T00:00:00Z"
+                                  }
+                                ]
+                                """.trimIndent()
+                            )
+                        }
+                        else -> error("Unexpected path: $path")
+                    }
+                }
+            ).build()
+        )
+        val repository = RoomStoryRepository(
+            api = api,
+            dao = dao,
+            deviceId = "device-test",
+            accessTokenProvider = { null }
+        )
+
+        val gutenbergResults = repository.searchGutenberg(search = "Dracula").getOrThrow()
+        val seResults = repository.searchStandardEbooks(search = "Dracula").getOrThrow()
+
+        assertEquals(1, gutenbergResults.size)
+        assertEquals(1, seResults.size)
+
+        val catalog = repository.observeCatalog().first()
+        assertEquals(2, catalog.size)
+        assertEquals(
+            setOf("GUTENBERG" to "345", "STANDARD_EBOOKS" to "bram-stoker/dracula"),
+            catalog.map { it.sourceProvider.wireValue to it.providerId }.toSet()
+        )
+
+        assertTrue(repository.refreshStory(standardEbooksStoryId).isSuccess)
+        assertTrue(repository.refreshChapters(standardEbooksStoryId).isSuccess)
+
+        assertEquals(
+            listOf(
+                "/api/v1/public/gutenberg",
+                "/api/v1/public/standard-ebooks",
+                "/api/v1/public/standard-ebooks/chapters"
+            ),
+            requests.toList()
+        )
+
+        val hydratedSe = repository.observeStory(standardEbooksStoryId).first()!!
+        assertEquals("bram-stoker/dracula", hydratedSe.providerId)
+        assertEquals(1, hydratedSe.totalChapters)
+        assertEquals("I: Jonathan Harker's Journal", hydratedSe.chapter)
+        assertTrue(hydratedSe.content.startsWith("Left Munich at 8:35 P.M."))
+    }
+
+    @Test
+    fun blankSynopsisStandardEbooksStubHydratesViaPublicStoryEndpoint() = runTest {
+        val storyId = "4e39ab55-d25a-52a0-ad55-832f2fc8da8e"
+        val dao = InMemoryStoryDao()
+        dao.upsertStories(
+            listOf(
+                StoryDto(
+                    id = storyId,
+                    title = "Dracula",
+                    author = "Bram Stoker",
+                    genre = "Horror",
+                    synopsis = "",
+                    sourceProvider = "STANDARD_EBOOKS",
+                    providerId = "bram-stoker/dracula"
+                ).toEntity()
+            )
+        )
+        val requests = CopyOnWriteArrayList<String>()
+        val api = FableApiService(
+            baseUrl = "https://fable.test/api/v1/",
+            client = OkHttpClient.Builder().addInterceptor(
+                Interceptor { chain ->
+                    val request = chain.request()
+                    requests += request.url.encodedPath
+                    assertEquals("/api/v1/public/standard-ebooks/story", request.url.encodedPath)
+                    assertEquals("bram-stoker/dracula", request.url.queryParameter("book_id"))
+                    jsonResponse(
+                        request,
+                        200,
+                        """
+                        {
+                          "id": "$storyId",
+                          "title": "Dracula",
+                          "author": "Bram Stoker",
+                          "genre": "Horror",
+                          "synopsis": "Vampire classic from Standard Ebooks.",
+                          "sourceProvider": "STANDARD_EBOOKS",
+                          "providerId": "bram-stoker/dracula"
+                        }
+                        """.trimIndent()
+                    )
+                }
+            ).build()
+        )
+        val repository = RoomStoryRepository(
+            api = api,
+            dao = dao,
+            deviceId = "device-test",
+            accessTokenProvider = { null }
+        )
+
+        assertTrue(repository.refreshStory(storyId).isSuccess)
+        assertEquals(listOf("/api/v1/public/standard-ebooks/story"), requests.toList())
+        assertEquals(
+            "Vampire classic from Standard Ebooks.",
+            repository.observeStory(storyId).first()?.synopsis
+        )
     }
 
     @Test
@@ -356,6 +539,43 @@ class RoomStoryRepositoryGutenbergIntegrationTest {
                 updated[storyId] = byNumber.values.sortedBy(ChapterEntity::chapterNumber)
             }
             chaptersState.value = updated
+        }
+
+        override fun observeDownloadedStoryIds(): Flow<List<String>> =
+            combine(storiesState, chaptersState) { storyMap, chapterMap ->
+                buildSet {
+                    storyMap.values.filter { it.content.isNotBlank() }.forEach { add(it.id) }
+                    chapterMap.forEach { (id, list) ->
+                        if (list.any { it.content.isNotBlank() || it.pageUrls.isNotEmpty() }) add(id)
+                    }
+                }.toList()
+            }
+
+        override suspend fun clearStoryContent(storyId: String) {
+            storiesState.value = storiesState.value.toMutableMap().apply {
+                this[storyId]?.let { put(storyId, it.copy(content = "")) }
+            }
+        }
+
+        override suspend fun deleteStory(storyId: String) {
+            storiesState.value = storiesState.value.toMutableMap().apply { remove(storyId) }
+            deleteChapters(storyId)
+        }
+
+        override suspend fun deleteStoriesByOwner(ownerId: String) {
+            val removedIds = storiesState.value.values.filter { it.ownerUserId == ownerId }.map(StoryEntity::id)
+            storiesState.value = storiesState.value.toMutableMap().apply {
+                removedIds.forEach { remove(it) }
+            }
+            removedIds.forEach { deleteChapters(it) }
+        }
+
+        override suspend fun deleteShelfStatesForStory(storyId: String) {
+            shelfState.value = shelfState.value.filterKeys { (_, id) -> id != storyId }
+        }
+
+        override suspend fun deleteShelfStatesForOwner(ownerId: String) {
+            shelfState.value = shelfState.value.filterKeys { (owner, _) -> owner != ownerId }
         }
     }
 }

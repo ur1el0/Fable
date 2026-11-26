@@ -10,11 +10,11 @@ enum class ContentFormat(val wireValue: String) {
     }
 }
 
-enum class SourceProvider(val wireValue: String) {
-    GUTENBERG("GUTENBERG"),
-    STANDARD_EBOOKS("STANDARD_EBOOKS"),
-    MANGADEX("MANGADEX"),
-    FABLE_ORIGINAL("FABLE_ORIGINAL");
+enum class SourceProvider(val wireValue: String, val displayName: String) {
+    GUTENBERG("GUTENBERG", "Project Gutenberg"),
+    STANDARD_EBOOKS("STANDARD_EBOOKS", "Standard Ebooks"),
+    MANGADEX("MANGADEX", "MangaDex"),
+    FABLE_ORIGINAL("FABLE_ORIGINAL", "Fable Original");
 
     companion object {
         fun fromWireValue(value: String): SourceProvider =
@@ -66,7 +66,8 @@ data class Story(
     val providerDownloadCount: Int? = null,
     val chapters: List<Chapter> = emptyList(),
     val lastReadChapterId: String? = null,
-    val lastReadChapterNumber: Int? = null
+    val lastReadChapterNumber: Int? = null,
+    val ownerUserId: String? = null
 )
 
 data class GenreCategory(

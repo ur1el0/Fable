@@ -1,40 +1,43 @@
-# Fable - Design & Aesthetics
+# Fable Android UI/UX & Visual Design Specification
 
-## 1. Visual Aesthetics
-- **Native Material 3 Modernity**: Fable follows modern Android Material Design 3 guidelines with expressive color tones, tonal elevation, and smooth dynamic shapes (`CornerSize(16.dp)`).
-- **Dedicated Reading Palettes**:
-  - **Light Mode**: High-contrast, clean off-white background (`#FAFAFA`) with deep charcoal text (`#1C1B1F`) to reduce glare.
-  - **Dark Mode**: Material 3 dark surface (`#121212`) with softened white text (`#E6E1E5`).
-  - **AMOLED Mode**: Pure pitch black (`#000000`) designed for OLED power savings and deep contrast.
-  - **Sepia / Paper Mode**: Warm parchment background (`#F4ECD8`) with warm espresso text (`#433422`) for eye comfort during prolonged reading sessions.
+## 1. Visual Direction: Warm Editorial Minimalism + High-Contrast Dark Mode
 
-## 2. Reader Ergonomics & Interaction Design
-- **Immersive Edge-to-Edge**: The reading canvas utilizes 100% of the screen. System status bar and navigation bar insets are respected during active controls, but smoothly fade away when reading.
-- **Center-Tap Control Overlay**: Tapping the center 33% of the reading area toggles reader chrome (top app bar, bottom progress scrubber, settings trigger). Tapping the left/right 33% advances or reverses pages in Paging mode.
-- **Micro-Animations & Transitions**:
-  - Chapter transitions use subtle horizontal slide or cross-fade animations (`tween( durationMillis = 200)`).
-  - Bottom sheets for reader settings animate smoothly without layout jank or dropped frames.
-- **Loading & Empty States**:
-  - Chapter content loading displays subtle shimmering skeleton text lines rather than harsh spinning wheels.
-  - Library empty states provide pleasant vector illustrations encouraging the user to explore or import books.
+Fable Android pairs a tactile warm-paper aesthetic in light mode with a WCAG AA high-contrast dark mode (`AppAppearance`: `SYSTEM`, `LIGHT`, `DARK`) and dedicated reading surfaces (`ReaderTheme`: `PAPER`, `SEPIA`, `NIGHT`).
 
-## 3. Component Standards
-- **Book Cover Cards**: Standard 2:3 book aspect ratio with subtle rounded corners (`12.dp`), clipped cover art via Coil, and an optional gradient scrim for title overlays.
-- **Chapter List Items**: Clean 56dp minimum height list items with explicit status indicators:
-  - Unread: Bold font weight, high-contrast text.
-  - Read: Dimmed text color (`onSurfaceVariant`).
-  - Downloaded: Subtle download checkmark badge.
-- **Reader Settings Bottom Sheet**: Compact, accessible bottom sheet containing quick toggles for font family, text scale slider, line spacing, margins, and color palette selectors.
-- **Touch Target Integrity**: All interactive buttons, icon buttons, and list items must satisfy the minimum 48x48dp touch target standard.
+### Global App Palettes (`ui/theme/Color.kt` & `Theme.kt`)
 
-## 4. Typography Standards
-- **Font Options**:
-  - **Sans-Serif**: Android Roboto / Inter for clean modern UI.
-  - **Serif**: Literata / Merriweather for comfortable long-form novel reading.
-  - **Monospace**: For system dialogues, metadata, or code excerpts.
-- **Ergonomic Tuning**:
-  - Font size adjustable from 12sp to 32sp.
-  - Line height multiplier adjustable between 1.2x and 2.2x.
-  - Paragraph spacing adjustable between 0dp and 24dp.
-  - Horizontal margin padding adjustable between 12dp and 36dp.
+| Role | Light Mode (Warm Paper) | Dark Mode (WCAG AA Obsidian) |
+|---|---|---|
+| **Background** | `#FBF8F3` (`FableBackground`) | `#0B0F17` (`FableDarkBackground`) |
+| **Elevated Surface** | `#F4EFE6` (`FableSurface`) | `#111824` (`FableDarkSurface`) |
+| **Primary Ink / Text** | `#18181B` (`FableText`) | `#F1F5F9` (`FableDarkText`) |
+| **Muted / Secondary Text** | `#52525B` (`FableMutedText`) | `#A5B4C8` (`FableDarkMutedText`) |
+| **Primary Brand Accent** | `#3949AB` (`FablePrimary`) | `#7890FF` (`FableDarkPrimary`) |
+| **Outline / Hairline** | `#E4DDD0` (`FableOutline`) | `#232F42` (`FableDarkOutline`) |
 
+### Reader Surface Palettes (`ReaderTheme`)
+- **Paper (`PAPER`)**: `#FBF8F3` canvas, `#1C1B18` ink.
+- **Sepia (`SEPIA`)**: `#F3E9D2` canvas, `#2B2118` ink.
+- **Night (`NIGHT`)**: `#0D1017` canvas, `#E5E7EB` ink.
+
+### Passage Highlight Swatches (`HighlightColor`)
+- **Terracotta (`TERRACOTTA`)**: `#D96B43`
+- **Amber (`AMBER`)**: `#D49B27`
+- **Sage (`SAGE`)**: `#4E8A6E`
+
+---
+
+## 2. Typography & Reader Ergonomics
+
+- **Reader Font Families (`ReaderFont`)**:
+  - `SERIF` (Default literary body)
+  - `SANS` (Clean modern sans-serif)
+  - `MONO` (Technical / typewriter monospace)
+- **Adjustable Reader Metrics**:
+  - Font size: `15sp` to `26sp` (preserved across paginated reflows via word-offset mapping).
+  - Line height multiplier: `1.25x` to `1.9x`.
+  - Per-session screen brightness: `Auto` (system default) or manual slider (`5%`–`100%`).
+- **Touch Targets & Accessibility**:
+  - Interactive controls maintain a minimum `48dp` touch target.
+  - Comic zoom includes both multi-touch pinch/double-tap gestures and an accessible `"Zoom"` / `"250% · Reset"` HUD pill.
+  - Password fields include explicit show/hide visibility toggles.

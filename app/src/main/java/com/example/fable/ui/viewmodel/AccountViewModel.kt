@@ -3,6 +3,7 @@ package com.example.fable.ui.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.example.fable.data.remote.FableApiException
 import com.example.fable.domain.model.Story
 import com.example.fable.domain.model.UserProfile
 import com.example.fable.domain.repository.AccountRepository
@@ -14,6 +15,7 @@ import kotlinx.coroutines.launch
 
 data class AccountUiState(
     val user: UserProfile? = null,
+    val localAccountId: String? = null,
     val publishedStories: List<Story> = emptyList(),
     val isLoadingPublishedStories: Boolean = false,
     val publishedStoriesErrorMessage: String? = null,
@@ -25,11 +27,14 @@ data class AccountUiState(
 class AccountViewModel(
     private val repository: AccountRepository
 ) : ViewModel() {
-    private val mutableUiState = MutableStateFlow(AccountUiState())
+    private val hasStoredSession = repository.hasSession()
+    private val mutableUiState = MutableStateFlow(
+        AccountUiState(localAccountId = repository.currentAccountId())
+    )
     val uiState: StateFlow<AccountUiState> = mutableUiState.asStateFlow()
 
     init {
-        if (repository.hasSession()) refreshProfile()
+        if (hasStoredSession) refreshProfile()
     }
 
     fun signIn(email: String, password: String) {
@@ -41,7 +46,15 @@ class AccountViewModel(
             beginRequest()
             repository.signIn(email, password).fold(
                 onSuccess = { user ->
-                    mutableUiState.update { it.copy(user = user, isBusy = false, errorMessage = null, noticeMessage = null) }
+                    mutableUiState.update {
+                        it.copy(
+                            user = user,
+                            localAccountId = user.id,
+                            isBusy = false,
+                            errorMessage = null,
+                            noticeMessage = null
+                        )
+                    }
                     loadPublishedStories(user.id)
                 },
                 onFailure = ::finishWithError
@@ -57,7 +70,15 @@ class AccountViewModel(
                 beginRequest()
                 repository.register(email, password, name, handle).fold(
                     onSuccess = { user ->
-                        mutableUiState.update { it.copy(user = user, isBusy = false, errorMessage = null, noticeMessage = null) }
+                        mutableUiState.update {
+                            it.copy(
+                                user = user,
+                                localAccountId = user.id,
+                                isBusy = false,
+                                errorMessage = null,
+                                noticeMessage = null
+                            )
+                        }
                         loadPublishedStories(user.id)
                     },
                     onFailure = ::finishWithError
@@ -71,12 +92,27 @@ class AccountViewModel(
             beginRequest()
             repository.currentUser().fold(
                 onSuccess = { user ->
-                    mutableUiState.update { it.copy(user = user, isBusy = false, errorMessage = null) }
+                    mutableUiState.update {
+                        it.copy(user = user, localAccountId = user.id, isBusy = false, errorMessage = null)
+                    }
                     loadPublishedStories(user.id)
                 },
-                onFailure = ::finishWithError
+                onFailure = { error ->
+                    if (error is FableApiException && error.statusCode == 401) {
+                        mutableUiState.value = AccountUiState(
+                            errorMessage = "Your session expired. Sign in again."
+                        )
+                    } else {
+                        finishWithError(error)
+                    }
+                }
             )
         }
+    }
+
+    fun refreshPublishedStories() {
+        val userId = mutableUiState.value.user?.id ?: return
+        loadPublishedStories(userId)
     }
 
     fun saveProfile(name: String, handle: String, bio: String) {
@@ -130,8 +166,45 @@ class AccountViewModel(
             beginRequest()
             repository.signOut().fold(
                 onSuccess = { mutableUiState.value = AccountUiState(noticeMessage = "Signed out.") },
-                onFailure = { error -> mutableUiState.value = AccountUiState(errorMessage = error.message ?: "Signed out locally; the server could not revoke this session.") }
+                onFailure = { error ->
+                    mutableUiState.value = AccountUiState(
+                        errorMessage = error.message ?: "Signed out locally; the server could not revoke this session."
+                    )
+                }
             )
+        }
+    }
+
+    fun deleteAccount(onDeleted: suspend (String) -> Unit = {}) {
+        val deletedUserId = mutableUiState.value.user?.id ?: return
+        viewModelScope.launch {
+            beginRequest()
+            repository.deleteAccount().fold(
+                onSuccess = {
+                    runCatching { onDeleted(deletedUserId) }
+                    mutableUiState.value = AccountUiState(noticeMessage = "Account deleted.")
+                },
+                onFailure = { error ->
+                    if (error is FableApiException && error.statusCode == 401) {
+                        mutableUiState.value = AccountUiState(
+                            errorMessage = "Your session expired. Sign in again."
+                        )
+                    } else {
+                        finishWithError(error)
+                    }
+                }
+            )
+        }
+    }
+
+    fun clearSessionForServerSwitch() {
+        repository.clearLocalSession()
+        mutableUiState.value = AccountUiState(noticeMessage = "Server updated. Sign in to sync your account.")
+    }
+
+    fun removePublishedStoryLocally(storyId: String) {
+        mutableUiState.update { state ->
+            state.copy(publishedStories = state.publishedStories.filterNot { it.id == storyId })
         }
     }
 

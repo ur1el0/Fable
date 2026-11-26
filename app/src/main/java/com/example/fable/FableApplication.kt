@@ -2,25 +2,38 @@ package com.example.fable
 
 import android.app.Application
 import androidx.room.Room
+import com.example.fable.data.local.DebugServerConfigStore
 import com.example.fable.data.local.DeviceIdentityStore
 import com.example.fable.data.local.FableDatabase
 import com.example.fable.data.local.SharedPreferencesReaderPreferencesRepository
 import com.example.fable.data.local.SecureSessionStore
 import com.example.fable.data.remote.FableApiService
+import com.example.fable.data.remote.FableHttpClientFactory
+import com.example.fable.data.remote.MangaApiService
 import com.example.fable.data.repository.RemoteAccountRepository
+import com.example.fable.data.repository.RoomHighlightRepository
 import com.example.fable.data.repository.RoomReadingStatsRepository
 import com.example.fable.data.repository.RoomStoryRepository
+import com.example.fable.data.repository.RoomWriterDraftRepository
 import com.example.fable.domain.repository.AccountRepository
+import com.example.fable.domain.repository.HighlightRepository
 import com.example.fable.domain.repository.ReadingStatsRepository
 import com.example.fable.domain.repository.ReaderPreferencesRepository
+import com.example.fable.domain.repository.ServerConfigRepository
 import com.example.fable.domain.repository.StoryRepository
+import com.example.fable.domain.repository.WriterDraftRepository
+import kotlinx.serialization.json.Json
 
 class FableApplication : Application() {
     lateinit var sessionStore: SecureSessionStore
         private set
     lateinit var deviceIdentityStore: DeviceIdentityStore
         private set
+    lateinit var serverConfigRepository: ServerConfigRepository
+        private set
     lateinit var apiService: FableApiService
+        private set
+    lateinit var mangaApiService: MangaApiService
         private set
     lateinit var storyRepository: StoryRepository
         private set
@@ -30,6 +43,10 @@ class FableApplication : Application() {
         private set
     lateinit var readerPreferencesRepository: ReaderPreferencesRepository
         private set
+    lateinit var writerDraftRepository: WriterDraftRepository
+        private set
+    lateinit var highlightRepository: HighlightRepository
+        private set
 
     override fun onCreate() {
         super.onCreate()
@@ -37,18 +54,39 @@ class FableApplication : Application() {
             applicationContext,
             FableDatabase::class.java,
             "fable.db"
-        ).addMigrations(FableDatabase.MIGRATION_1_2, FableDatabase.MIGRATION_2_3).build()
+        ).addMigrations(
+            FableDatabase.MIGRATION_1_2,
+            FableDatabase.MIGRATION_2_3,
+            FableDatabase.MIGRATION_3_4,
+            FableDatabase.MIGRATION_4_5,
+            FableDatabase.MIGRATION_5_6
+        ).build()
         sessionStore = SecureSessionStore(applicationContext)
         deviceIdentityStore = DeviceIdentityStore(applicationContext)
+        serverConfigRepository = DebugServerConfigStore(
+            context = applicationContext,
+            defaultBaseUrl = BuildConfig.FABLE_API_BASE_URL,
+            isRuntimeSwitchEnabled = BuildConfig.DEBUG
+        )
+        val httpClient = FableHttpClientFactory.create()
+        val json = Json { ignoreUnknownKeys = true }
         apiService = FableApiService(
-            baseUrl = BuildConfig.FABLE_API_BASE_URL,
+            baseUrlProvider = serverConfigRepository::currentBaseUrl,
+            client = httpClient,
+            json = json,
             accessTokenProvider = sessionStore::readAccessToken
+        )
+        mangaApiService = MangaApiService(
+            baseUrlProvider = serverConfigRepository::currentBaseUrl,
+            client = httpClient,
+            json = json
         )
         storyRepository = RoomStoryRepository(
             api = apiService,
             dao = database.storyDao(),
             deviceId = deviceIdentityStore.getOrCreateDeviceId(),
-            accessTokenProvider = sessionStore::readAccessToken
+            accessTokenProvider = sessionStore::readAccessToken,
+            mangaApi = mangaApiService
         )
         accountRepository = RemoteAccountRepository(apiService, sessionStore)
         readingStatsRepository = RoomReadingStatsRepository(
@@ -57,5 +95,7 @@ class FableApplication : Application() {
             accessTokenProvider = sessionStore::readAccessToken
         )
         readerPreferencesRepository = SharedPreferencesReaderPreferencesRepository(applicationContext)
+        writerDraftRepository = RoomWriterDraftRepository(database.writerDraftDao())
+        highlightRepository = RoomHighlightRepository(database.highlightDao())
     }
 }

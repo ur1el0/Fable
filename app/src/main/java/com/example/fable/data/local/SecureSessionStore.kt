@@ -29,8 +29,11 @@ class SecureSessionStore(context: Context) {
     }
 
     @Synchronized
-    fun writeAccessToken(token: String) {
-        if (token.isBlank()) {
+    fun readAccountId(): String? = preferences.getString(KEY_ACCOUNT_ID, null)
+
+    @Synchronized
+    fun writeSession(token: String, accountId: String) {
+        if (token.isBlank() || accountId.isBlank()) {
             clear()
             return
         }
@@ -42,6 +45,7 @@ class SecureSessionStore(context: Context) {
             preferences.edit()
                 .putString(KEY_IV, iv)
                 .putString(KEY_CIPHERTEXT, ciphertext)
+                .putString(KEY_ACCOUNT_ID, accountId)
                 .commit()
         ) { "Could not persist the Fable session." }
     }
@@ -80,6 +84,7 @@ class SecureSessionStore(context: Context) {
         const val KEY_ALIAS = "fable_session_aes_key"
         const val KEY_CIPHERTEXT = "access_token_ciphertext"
         const val KEY_IV = "access_token_iv"
+        const val KEY_ACCOUNT_ID = "account_id"
         const val KEYSTORE_PROVIDER = "AndroidKeyStore"
         const val TAG_LENGTH_BITS = 128
         const val TRANSFORMATION = "AES/GCM/NoPadding"

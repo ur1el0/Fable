@@ -73,6 +73,12 @@ class RoomReadingStatsRepository(
         }
     }
 
+    override suspend fun clearOwnerData(ownerId: String): Result<Unit> = runCatching {
+        if (ownerId.isNotBlank() && ownerId != GUEST_OWNER_ID) {
+            dao.clearOwnerData(ownerId)
+        }
+    }
+
     private fun normalizeStoryIdForBackend(storyId: String): String {
         if (runCatching { UUID.fromString(storyId) }.isSuccess) return storyId
         val gutenbergNumber = storyId.removePrefix("gutenberg-").toLongOrNull()

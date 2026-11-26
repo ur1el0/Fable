@@ -74,6 +74,84 @@ class ShelfStateMigrationTest {
         migrated.close()
     }
 
+    @Test
+    fun createsOwnerScopedWriterDraftTable() {
+        helper.createDatabase(TEST_DATABASE, 3).close()
+
+        val migrated = helper.runMigrationsAndValidate(
+            TEST_DATABASE,
+            4,
+            true,
+            FableDatabase.MIGRATION_3_4
+        )
+        migrated.query("PRAGMA table_info(`writer_drafts`)").use { cursor ->
+            val columns = buildList {
+                while (cursor.moveToNext()) add(cursor.getString(1))
+            }
+            assertEquals(
+                listOf("ownerId", "title", "genre", "chapterTitle", "synopsis", "content"),
+                columns
+            )
+        }
+        migrated.close()
+    }
+
+    @Test
+    fun addsOwnerUserIdColumnToStoriesTable() {
+        helper.createDatabase(TEST_DATABASE, 4).apply {
+            insertStory(this, "owned-story", bookmarked = true, progress = 25, currentPage = 2)
+            close()
+        }
+
+        val migrated = helper.runMigrationsAndValidate(
+            TEST_DATABASE,
+            5,
+            true,
+            FableDatabase.MIGRATION_4_5
+        )
+        migrated.query("PRAGMA table_info(`stories`)").use { cursor ->
+            val columns = buildList {
+                while (cursor.moveToNext()) add(cursor.getString(1))
+            }
+            assertTrue("ownerUserId" in columns)
+        }
+        migrated.close()
+    }
+
+    @Test
+    fun createsStoryHighlightsTable() {
+        helper.createDatabase(TEST_DATABASE, 5).close()
+
+        val migrated = helper.runMigrationsAndValidate(
+            TEST_DATABASE,
+            6,
+            true,
+            FableDatabase.MIGRATION_5_6
+        )
+        migrated.query("PRAGMA table_info(`story_highlights`)").use { cursor ->
+            val columns = buildList {
+                while (cursor.moveToNext()) add(cursor.getString(1))
+            }
+            assertEquals(
+                listOf(
+                    "id",
+                    "ownerId",
+                    "storyId",
+                    "chapterNumber",
+                    "paragraphIndex",
+                    "startOffset",
+                    "endOffset",
+                    "selectedText",
+                    "note",
+                    "color",
+                    "createdAtUtc"
+                ),
+                columns
+            )
+        }
+        migrated.close()
+    }
+
     private fun insertStory(
         database: androidx.sqlite.db.SupportSQLiteDatabase,
         storyId: String,

@@ -12,15 +12,19 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ChapterEntity::class,
         ShelfStateEntity::class,
         ReadingSessionEntity::class,
-        ReadingStatsEntity::class
+        ReadingStatsEntity::class,
+        WriterDraftEntity::class,
+        HighlightEntity::class
     ],
-    version = 3,
+    version = 6,
     exportSchema = true
 )
 @TypeConverters(FableTypeConverters::class)
 abstract class FableDatabase : RoomDatabase() {
     abstract fun storyDao(): StoryDao
     abstract fun readingStatsDao(): ReadingStatsDao
+    abstract fun writerDraftDao(): WriterDraftDao
+    abstract fun highlightDao(): HighlightDao
 
     companion object {
         val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -80,6 +84,51 @@ abstract class FableDatabase : RoomDatabase() {
                         PRIMARY KEY(`ownerId`)
                     )""".trimIndent()
                 )
+            }
+        }
+
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """CREATE TABLE IF NOT EXISTS `writer_drafts` (
+                        `ownerId` TEXT NOT NULL,
+                        `title` TEXT NOT NULL,
+                        `genre` TEXT NOT NULL,
+                        `chapterTitle` TEXT NOT NULL,
+                        `synopsis` TEXT NOT NULL,
+                        `content` TEXT NOT NULL,
+                        PRIMARY KEY(`ownerId`)
+                    )""".trimIndent()
+                )
+            }
+        }
+
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `stories` ADD COLUMN `ownerUserId` TEXT")
+            }
+        }
+
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """CREATE TABLE IF NOT EXISTS `story_highlights` (
+                        `id` TEXT NOT NULL,
+                        `ownerId` TEXT NOT NULL,
+                        `storyId` TEXT NOT NULL,
+                        `chapterNumber` INTEGER NOT NULL,
+                        `paragraphIndex` INTEGER NOT NULL,
+                        `startOffset` INTEGER NOT NULL,
+                        `endOffset` INTEGER NOT NULL,
+                        `selectedText` TEXT NOT NULL,
+                        `note` TEXT NOT NULL,
+                        `color` TEXT NOT NULL,
+                        `createdAtUtc` TEXT NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )""".trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_story_highlights_ownerId_storyId` ON `story_highlights` (`ownerId`, `storyId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_story_highlights_storyId` ON `story_highlights` (`storyId`)")
             }
         }
     }

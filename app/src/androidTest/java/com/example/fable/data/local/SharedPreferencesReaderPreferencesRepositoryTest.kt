@@ -3,6 +3,8 @@ package com.example.fable.data.local
 import android.content.Context
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.example.fable.domain.model.AppAppearance
+import com.example.fable.domain.model.MangaReadingMode
 import com.example.fable.domain.model.ReaderFont
 import com.example.fable.domain.model.ReaderLayout
 import com.example.fable.domain.model.ReaderLineSpacing
@@ -42,12 +44,24 @@ class SharedPreferencesReaderPreferencesRepositoryTest {
             fontScalePercent = 135,
             theme = ReaderTheme.OLED,
             lineSpacing = ReaderLineSpacing.SPACIOUS,
-            layout = ReaderLayout.PAGINATED
+            layout = ReaderLayout.PAGINATED,
+            mangaReadingMode = MangaReadingMode.PAGE_RTL,
+            appAppearance = AppAppearance.DARK,
+            readerBrightness = 0.65f
         )
 
         repository.save(expected)
 
         assertEquals(expected, repository.read())
+    }
+
+    @Test
+    fun saveAndReadRoundTripsAllComicReadingModes() {
+        MangaReadingMode.entries.forEach { mode ->
+            val preferences = ReaderPreferences(mangaReadingMode = mode)
+            repository.save(preferences)
+            assertEquals(mode, repository.read().mangaReadingMode)
+        }
     }
 
     @Test
@@ -58,6 +72,7 @@ class SharedPreferencesReaderPreferencesRepositoryTest {
             .putString(KEY_THEME, "UNKNOWN")
             .putString(KEY_LINE_SPACING, "UNKNOWN")
             .putString(KEY_LAYOUT, "UNKNOWN")
+            .putString(KEY_MANGA_READING_MODE, "UNKNOWN")
             .commit()
 
         assertEquals(ReaderPreferences(fontScalePercent = 150), repository.read())
@@ -70,5 +85,6 @@ class SharedPreferencesReaderPreferencesRepositoryTest {
         const val KEY_THEME = "theme"
         const val KEY_LINE_SPACING = "line_spacing"
         const val KEY_LAYOUT = "layout"
+        const val KEY_MANGA_READING_MODE = "manga_reading_mode"
     }
 }

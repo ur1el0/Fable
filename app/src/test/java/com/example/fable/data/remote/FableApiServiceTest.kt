@@ -2,11 +2,17 @@ package com.example.fable.data.remote
 
 import com.example.fable.data.remote.dto.ShelfSyncItemDto
 import com.example.fable.data.remote.dto.ShelfSyncRequestDto
+import com.example.fable.data.remote.dto.UpdateStoryRequestDto
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import okhttp3.Call
+import okhttp3.EventListener
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
@@ -20,6 +26,9 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 class FableApiServiceTest {
     private val json = Json { ignoreUnknownKeys = true }
@@ -62,6 +71,61 @@ class FableApiServiceTest {
         assertEquals("/api/v1/public/gutenberg", request.url.encodedPath)
         assertEquals("Folklore", request.url.queryParameter("topic"))
         assertEquals("Alice", request.url.queryParameter("search"))
+    }
+
+    @Test
+    fun fetchGutenbergStoriesForwardsSortParameter() = runTest {
+        val recorder = JsonResponseInterceptor(body = "[]")
+        val service = service(recorder)
+
+        service.fetchGutenbergStories(search = "Alice", sort = "popular")
+
+        val request = recorder.requests.single()
+        assertEquals("/api/v1/public/gutenberg", request.url.encodedPath)
+        assertEquals("popular", request.url.queryParameter("sort"))
+    }
+
+    @Test
+    fun cancellingCoroutineCancelsInFlightOkHttpCall() = runTest {
+        val callStarted = CompletableDeferred<Unit>()
+        val callCanceled = CountDownLatch(1)
+        val interceptorDone = CountDownLatch(1)
+        val interceptorCanceled = AtomicBoolean(false)
+        val client = OkHttpClient.Builder()
+            .eventListener(
+                object : EventListener() {
+                    override fun canceled(call: Call) {
+                        callCanceled.countDown()
+                    }
+                }
+            )
+            .addInterceptor { chain ->
+                try {
+                    val call = chain.call()
+                    callStarted.complete(Unit)
+                    val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+                    while (!call.isCanceled() && System.nanoTime() < deadline) {
+                        Thread.sleep(10)
+                    }
+                    interceptorCanceled.set(call.isCanceled())
+                    throw java.io.IOException("Canceled")
+                } finally {
+                    interceptorDone.countDown()
+                }
+            }
+            .build()
+        val service = FableApiService(baseUrl = "https://fable.test/api/v1/", client = client)
+
+        val job = launch(Dispatchers.IO) {
+            service.fetchHealth()
+        }
+        callStarted.await()
+        job.cancel()
+        job.join()
+
+        assertTrue(callCanceled.await(2, TimeUnit.SECONDS))
+        assertTrue(interceptorDone.await(2, TimeUnit.SECONDS))
+        assertTrue(interceptorCanceled.get())
     }
 
     @Test
@@ -122,6 +186,93 @@ class FableApiServiceTest {
         val request = recorder.requests.single()
         assertEquals("GET", request.method)
         assertEquals("/api/v1/public/gutenberg/11/chapters", request.url.encodedPath)
+    }
+
+    @Test
+    fun fetchStandardEbooksStoriesBuildsVersionedQueryAndDecodesResponse() = runTest {
+        val recorder = JsonResponseInterceptor(
+            body = """
+                [
+                  {
+                    "id":"4e39ab55-d25a-52a0-ad55-832f2fc8da8e",
+                    "title":"Dracula",
+                    "author":"Bram Stoker",
+                    "genre":"Horror",
+                    "contentFormat":"PROSE",
+                    "sourceProvider":"STANDARD_EBOOKS",
+                    "providerId":"bram-stoker/dracula"
+                  }
+                ]
+            """.trimIndent()
+        )
+        val service = service(recorder)
+
+        val stories = service.fetchStandardEbooksStories(topic = "fiction", search = "Dracula")
+
+        val story = stories.single()
+        assertEquals("4e39ab55-d25a-52a0-ad55-832f2fc8da8e", story.id)
+        assertEquals("STANDARD_EBOOKS", story.sourceProvider)
+        assertEquals("bram-stoker/dracula", story.providerId)
+        val request = recorder.requests.single()
+        assertEquals("GET", request.method)
+        assertEquals("/api/v1/public/standard-ebooks", request.url.encodedPath)
+        assertEquals("fiction", request.url.queryParameter("topic"))
+        assertEquals("Dracula", request.url.queryParameter("search"))
+    }
+
+    @Test
+    fun fetchStandardEbooksStorySendsBookIdQueryParameterAndDecodesStory() = runTest {
+        val recorder = JsonResponseInterceptor(
+            body = """
+                {
+                  "id":"4e39ab55-d25a-52a0-ad55-832f2fc8da8e",
+                  "title":"Dracula",
+                  "author":"Bram Stoker",
+                  "genre":"Horror",
+                  "synopsis":"Count Dracula moves to England.",
+                  "contentFormat":"PROSE",
+                  "sourceProvider":"STANDARD_EBOOKS",
+                  "providerId":"bram-stoker/dracula"
+                }
+            """.trimIndent()
+        )
+        val service = service(recorder)
+
+        val story = service.fetchStandardEbooksStory("bram-stoker/dracula")
+
+        assertEquals("Count Dracula moves to England.", story.synopsis)
+        val request = recorder.requests.single()
+        assertEquals("GET", request.method)
+        assertEquals("/api/v1/public/standard-ebooks/story", request.url.encodedPath)
+        assertEquals("bram-stoker/dracula", request.url.queryParameter("book_id"))
+    }
+
+    @Test
+    fun fetchStandardEbooksChaptersSendsBookIdQueryParameterAndDecodesChapters() = runTest {
+        val recorder = JsonResponseInterceptor(
+            body = """
+                [
+                  {
+                    "id":"chap-1",
+                    "storyId":"4e39ab55-d25a-52a0-ad55-832f2fc8da8e",
+                    "chapterNumber":1,
+                    "title":"I: Harker's Journal",
+                    "content":"Left Munich at dusk.",
+                    "wordCount":120
+                  }
+                ]
+            """.trimIndent()
+        )
+        val service = service(recorder)
+
+        val chapters = service.fetchStandardEbooksChapters("bram-stoker/dracula")
+
+        assertEquals(1, chapters.size)
+        assertEquals("I: Harker's Journal", chapters.single().title)
+        val request = recorder.requests.single()
+        assertEquals("GET", request.method)
+        assertEquals("/api/v1/public/standard-ebooks/chapters", request.url.encodedPath)
+        assertEquals("bram-stoker/dracula", request.url.queryParameter("book_id"))
     }
 
     @Test
@@ -328,6 +479,109 @@ class FableApiServiceTest {
         assertNull(request.url.queryParameter("since"))
         assertEquals("50", request.url.queryParameter("limit"))
         assertEquals("0", request.url.queryParameter("offset"))
+    }
+
+    @Test
+    fun baseUrlProviderSwitchesTargetHostDynamicallyAcrossRequests() = runTest {
+        val recorder = JsonResponseInterceptor(
+            body = """{"status":"healthy","database":"connected","timestamp_utc":"2026-11-07T12:45:16Z"}"""
+        )
+        var currentBaseUrl = "http://10.0.2.2:8001/api/v1/"
+        val service = FableApiService(
+            baseUrlProvider = { currentBaseUrl },
+            client = OkHttpClient.Builder().addInterceptor(recorder).build()
+        )
+
+        service.fetchHealth()
+        currentBaseUrl = "https://fable-api-cbo8.onrender.com/api/v1/"
+        service.fetchHealth()
+
+        val hosts = recorder.requests.map { it.url.host }
+        assertEquals(listOf("10.0.2.2", "fable-api-cbo8.onrender.com"), hosts)
+    }
+
+    @Test
+    fun updateStorySendsPatchWithBearerTokenAndOnlyUpdateStoryRequestFields() = runTest {
+        val recorder = JsonResponseInterceptor(
+            body = """
+                {
+                  "id":"story-1",
+                  "title":"Revised Title",
+                  "author":"Author",
+                  "genre":"Fantasy",
+                  "chapter":"Chapter 1: Revised",
+                  "synopsis":"Updated synopsis",
+                  "content":"Updated content body",
+                  "readTimeMinutes":4,
+                  "ownerUserId":"user-1"
+                }
+            """.trimIndent()
+        )
+        val service = FableApiService(
+            baseUrl = "https://fable.test/api/v1/",
+            client = OkHttpClient.Builder().addInterceptor(recorder).build(),
+            accessTokenProvider = { "writer-token" }
+        )
+
+        val updated = service.updateStory(
+            storyId = "story-1",
+            request = UpdateStoryRequestDto(
+                title = "Revised Title",
+                genre = "Fantasy",
+                chapter = "Chapter 1: Revised",
+                synopsis = "Updated synopsis",
+                content = "Updated content body",
+                readTimeMinutes = 4
+            )
+        )
+
+        assertEquals("Revised Title", updated.title)
+        assertEquals("user-1", updated.ownerUserId)
+        val request = recorder.requests.single()
+        assertEquals("PATCH", request.method)
+        assertEquals("/api/v1/stories/story-1", request.url.encodedPath)
+        assertEquals("Bearer writer-token", request.header("Authorization"))
+        val bodyBuffer = Buffer().also { requireNotNull(request.body).writeTo(it) }
+        val payload = json.parseToJsonElement(bodyBuffer.readUtf8()).jsonObject
+        assertEquals(
+            setOf("title", "genre", "chapter", "synopsis", "content", "readTimeMinutes"),
+            payload.keys
+        )
+        assertEquals("Revised Title", payload.getValue("title").jsonPrimitive.content)
+    }
+
+    @Test
+    fun deleteStorySendsAuthenticatedDeleteAndAccepts204() = runTest {
+        val recorder = JsonResponseInterceptor(statusCode = 204, body = "")
+        val service = FableApiService(
+            baseUrl = "https://fable.test/api/v1/",
+            client = OkHttpClient.Builder().addInterceptor(recorder).build(),
+            accessTokenProvider = { "writer-token" }
+        )
+
+        service.deleteStory("story-1")
+
+        val request = recorder.requests.single()
+        assertEquals("DELETE", request.method)
+        assertEquals("/api/v1/stories/story-1", request.url.encodedPath)
+        assertEquals("Bearer writer-token", request.header("Authorization"))
+    }
+
+    @Test
+    fun deleteAccountSendsAuthenticatedDeleteToAuthMe() = runTest {
+        val recorder = JsonResponseInterceptor(statusCode = 204, body = "")
+        val service = FableApiService(
+            baseUrl = "https://fable.test/api/v1/",
+            client = OkHttpClient.Builder().addInterceptor(recorder).build(),
+            accessTokenProvider = { "account-token" }
+        )
+
+        service.deleteAccount()
+
+        val request = recorder.requests.single()
+        assertEquals("DELETE", request.method)
+        assertEquals("/api/v1/auth/me", request.url.encodedPath)
+        assertEquals("Bearer account-token", request.header("Authorization"))
     }
 
     private fun service(interceptor: JsonResponseInterceptor) = FableApiService(

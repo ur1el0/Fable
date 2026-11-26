@@ -1,6 +1,7 @@
 package com.example.fable.data.repository
 
 import com.example.fable.data.local.SecureSessionStore
+import com.example.fable.data.remote.FableApiException
 import com.example.fable.data.remote.FableApiService
 import com.example.fable.data.remote.dto.LoginRequestDto
 import com.example.fable.data.remote.dto.PasswordResetConfirmRequestDto
@@ -18,8 +19,15 @@ class RemoteAccountRepository(
 ) : AccountRepository {
     override fun hasSession(): Boolean = !sessionStore.readAccessToken().isNullOrBlank()
 
+    override fun currentAccountId(): String? = sessionStore.readAccountId()
+
     override suspend fun currentUser(): Result<UserProfile> = runCatching {
-        api.fetchCurrentUser().toDomain()
+        try {
+            api.fetchCurrentUser().toDomain()
+        } catch (error: FableApiException) {
+            if (error.statusCode == 401) sessionStore.clear()
+            throw error
+        }
     }
 
     override suspend fun myStories(): Result<List<Story>> = runCatching {
@@ -28,7 +36,7 @@ class RemoteAccountRepository(
 
     override suspend fun signIn(email: String, password: String): Result<UserProfile> = runCatching {
         val response = api.login(LoginRequestDto(email.trim(), password))
-        sessionStore.writeAccessToken(response.accessToken)
+        sessionStore.writeSession(response.accessToken, response.user.id)
         response.user.toDomain()
     }
 
@@ -39,7 +47,7 @@ class RemoteAccountRepository(
         handle: String
     ): Result<UserProfile> = runCatching {
         val response = api.register(RegisterRequestDto(email.trim(), password, name.trim(), handle.trim()))
-        sessionStore.writeAccessToken(response.accessToken)
+        sessionStore.writeSession(response.accessToken, response.user.id)
         response.user.toDomain()
     }
 
@@ -60,5 +68,19 @@ class RemoteAccountRepository(
         val remoteResult = runCatching { api.logout() }
         sessionStore.clear()
         remoteResult.getOrThrow()
+    }
+
+    override suspend fun deleteAccount(): Result<Unit> = runCatching {
+        try {
+            api.deleteAccount()
+            sessionStore.clear()
+        } catch (error: FableApiException) {
+            if (error.statusCode == 401) sessionStore.clear()
+            throw error
+        }
+    }
+
+    override fun clearLocalSession() {
+        sessionStore.clear()
     }
 }

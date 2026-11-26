@@ -1,5 +1,6 @@
 package com.example.fable.ui.screens.components
 
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -15,20 +16,20 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil3.compose.AsyncImage
 import com.example.fable.domain.model.Chapter
-import com.example.fable.domain.model.ContentFormat
 import com.example.fable.domain.model.ReaderPreferences
 import com.example.fable.domain.model.Story
+import com.example.fable.domain.model.StoryHighlight
+import com.example.fable.domain.reading.InBookSearchEngine
 import com.example.fable.domain.reading.ReaderProgressMapper
 import com.example.fable.ui.theme.ReaderPalette
 import com.example.fable.ui.theme.scaledFontSize
@@ -58,7 +59,11 @@ fun ContinuousChapterList(
     onSaveProgress: (Int, Int) -> Unit,
     onEnsureChapterLoaded: (Int) -> Unit,
     onActiveChapterChanged: (Int) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    highlights: List<StoryHighlight> = emptyList(),
+    searchHighlightQuery: String? = null,
+    onToggleChrome: () -> Unit = {},
+    onLongPressParagraph: (chapterNumber: Int, paragraphIndex: Int, paragraphText: String) -> Unit = { _, _, _ -> }
 ) {
     val orderedChapters = remember(chapters) { chapters.sortedBy(Chapter::chapterNumber) }
     val latestChapters = rememberUpdatedState(orderedChapters)
@@ -94,7 +99,7 @@ fun ContinuousChapterList(
 
         val targetReady = snapshotFlow {
             val target = latestChapters.value.getOrNull(targetIndex)
-            target?.content?.isNotBlank() == true || target?.pageUrls?.isNotEmpty() == true ||
+            target?.content?.isNotBlank() == true ||
                 ((target == null || target.chapterNumber == 1) && story.content.isNotBlank())
         }.first { it }
         if (!targetReady) return@LaunchedEffect
@@ -152,7 +157,11 @@ fun ContinuousChapterList(
                     chapterNumber = selectedChapterNumber,
                     content = story.content,
                     readerPreferences = readerPreferences,
-                    palette = palette
+                    palette = palette,
+                    highlights = highlights,
+                    searchHighlightQuery = searchHighlightQuery,
+                    onToggleChrome = onToggleChrome,
+                    onLongPressParagraph = onLongPressParagraph
                 )
             }
         }
@@ -160,7 +169,7 @@ fun ContinuousChapterList(
             val content = chapter.content.takeIf(String::isNotBlank)
                 ?: story.content.takeIf { chapter.chapterNumber == 1 && it.isNotBlank() }
                 ?: ""
-            val hasContent = content.isNotBlank() || chapter.pageUrls.isNotEmpty()
+            val hasContent = content.isNotBlank()
             LaunchedEffect(chapter.id, hasContent) {
                 if (!hasContent) latestOnEnsureChapterLoaded.value(chapter.chapterNumber)
             }
@@ -170,7 +179,11 @@ fun ContinuousChapterList(
                 chapterNumber = chapter.chapterNumber,
                 content = content,
                 readerPreferences = readerPreferences,
-                palette = palette
+                palette = palette,
+                highlights = highlights,
+                searchHighlightQuery = searchHighlightQuery,
+                onToggleChrome = onToggleChrome,
+                onLongPressParagraph = onLongPressParagraph
             )
         }
     }
@@ -183,9 +196,20 @@ private fun ChapterContent(
     chapterNumber: Int,
     content: String,
     readerPreferences: ReaderPreferences,
-    palette: ReaderPalette
+    palette: ReaderPalette,
+    highlights: List<StoryHighlight>,
+    searchHighlightQuery: String?,
+    onToggleChrome: () -> Unit,
+    onLongPressParagraph: (chapterNumber: Int, paragraphIndex: Int, paragraphText: String) -> Unit
 ) {
     val fontFamily = readerPreferences.font.toFontFamily()
+    val paragraphs = remember(content) { InBookSearchEngine.paragraphs(content) }
+    val chapterHighlights = remember(highlights, chapterNumber) {
+        highlights.filter { it.chapterNumber == chapterNumber }
+    }
+    val latestOnToggleChrome by rememberUpdatedState(onToggleChrome)
+    val latestOnLongPressParagraph by rememberUpdatedState(onLongPressParagraph)
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -199,26 +223,32 @@ private fun ChapterContent(
             lineHeight = readerPreferences.scaledLineHeight(34f, 28f).sp,
             color = palette.foreground
         )
-        if (story.contentFormat == ContentFormat.MANGA && chapter?.pageUrls?.isNotEmpty() == true) {
-            chapter.pageUrls.forEachIndexed { index, pageUrl ->
-                AsyncImage(
-                    model = pageUrl,
-                    contentDescription = "Page ${index + 1}",
-                    contentScale = ContentScale.Fit,
+        if (paragraphs.isNotEmpty()) {
+            paragraphs.forEachIndexed { paragraphIndex, paragraph ->
+                val paragraphHighlights = remember(chapterHighlights, paragraphIndex) {
+                    chapterHighlights.filter { it.paragraphIndex == paragraphIndex }
+                }
+                val annotatedParagraph = remember(paragraph, paragraphHighlights, searchHighlightQuery) {
+                    buildHighlightedParagraph(paragraph, paragraphHighlights, searchHighlightQuery)
+                }
+                Text(
+                    text = annotatedParagraph,
+                    fontFamily = fontFamily,
+                    fontSize = readerPreferences.scaledFontSize(18f).sp,
+                    lineHeight = readerPreferences.scaledLineHeight(31f, 18f).sp,
+                    color = palette.foreground,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(460.dp)
-                        .clip(MaterialTheme.shapes.small)
+                        .pointerInput(chapterNumber, paragraphIndex, paragraph) {
+                            detectTapGestures(
+                                onTap = { latestOnToggleChrome() },
+                                onLongPress = {
+                                    latestOnLongPressParagraph(chapterNumber, paragraphIndex, paragraph)
+                                }
+                            )
+                        }
                 )
             }
-        } else if (content.isNotBlank()) {
-            Text(
-                content,
-                fontFamily = fontFamily,
-                fontSize = readerPreferences.scaledFontSize(18f).sp,
-                lineHeight = readerPreferences.scaledLineHeight(31f, 18f).sp,
-                color = palette.foreground
-            )
         } else {
             Text(
                 "This chapter is not available offline yet.",

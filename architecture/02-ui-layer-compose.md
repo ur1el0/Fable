@@ -1,75 +1,42 @@
-# 02 Presentation Layer (Jetpack Compose)
+# 02 UI Layer & Jetpack Compose Architecture
 
-## 1. UI Architecture & Design System
+## 1. Navigation & Screen Topology
 
-The user interface of Fable is built entirely in **Jetpack Compose** utilizing Material Design 3 (Material You). The application enforces strict Unidirectional Data Flow (UDF) across all screens.
+`FableApp.kt` coordinates top-level navigation and drill-down destinations using the typed navigation state holder in `ui/navigation/FableNavigation.kt`:
 
-```
-┌────────────────────────────────────────────────────────┐
-│                      ViewModel                         │
-│  - Holds private MutableStateFlow<UiState>             │
-│  - Exposes read-only StateFlow<UiState>                │
-│  - Executes business logic via Domain Use Cases        │
-└───────────────────────────▲────────────────────────────┘
-         Events Up (User    │    State Down (Immutable
-         Clicks, Input)     │    UiState Data Class)
-┌───────────────────────────┴────────────────────────────┐
-│                  Composable Screen                     │
-│  - Collects state via collectAsStateWithLifecycle()   │
-│  - Purely declarative rendering                        │
-│  - Delegates UI events up via lambdas                  │
-└────────────────────────────────────────────────────────┘
-```
+- **`FableTab`**:
+  - `LIBRARY` (`LibraryScreen.kt`) — Featured stories, *"Continue Reading"* rail, pull-to-refresh catalog sync, and curated shelves.
+  - `EXPLORE` (`ExploreScreen.kt`) — Format-aware discovery toggle (**Books** vs **Manga & Comics**), provider filter chips (`All Books`, `Fable`, `Gutenberg`, `Standard Ebooks`, `MangaDex`), debounced search, trending tags, and clickable featured writers.
+  - `SHELF` (`ShelfScreen.kt`) — Reading queue filtered by `Saved`, `In Progress`, `Finished`, and `Offline`, paired with reading streak and reading time cards.
+  - `WRITE` (`WriteScreen.kt`) — Mobile writer studio with local Room draft auto-save, live word/character count, estimated reading time, chapter marker insertion (`Chapter N:`), and story publishing.
+  - `ACCOUNT` (`AccountScreen.kt`) — Authentication (`Sign In`, `Create Account`, `Reset Password`), profile management, global `AppAppearance` selector (`System`, `Light`, `Dark`), author's published stories (`Edit` / `Delete`), account deletion, and debug-only runtime server URL switcher.
+- **`FableDestination` & `FableNavBackStack`**:
+  - `FableDestination.TabRoot(tab: FableTab)`
+  - `FableDestination.StoryDetail(storyId: String)` (`StoryDetailScreen.kt`)
+  - `FableDestination.StoryReader(storyId: String, chapterIndex: Int?)` (`StoryReaderScreen.kt`)
+  - `FableDestination.StoryEdit(storyId: String)` (`EditStoryScreen.kt`)
+  - `FableNavBackStack` persists across configuration changes and process recreation via `FableNavBackStack.Saver` and supports targeted cleanup via `popStory(storyId)` when a story is deleted.
 
 ---
 
-## 2. Navigation Hierarchy & Screen Structure
+## 2. Decomposed ViewModel Responsibilities
 
-Navigation is managed via **Jetpack Compose Navigation** (`NavHost`):
-
-1. **`LibraryScreen` (`fable://library`):**
-   - Main landing screen. Displays books marked as favorites in a flexible 2:3 cover grid or list view.
-   - Includes category tabs (e.g., "All", "Currently Reading", "Completed") and quick search filtering.
-2. **`BookDetailScreen` (`fable://book/{bookId}`):**
-   - Displays cover art, author, description, tags, and the full list of chapters.
-   - Actions: "Start Reading", "Favorite / Bookmark", "Download All", and individual chapter download toggles.
-3. **`ReaderScreen` (`fable://reader/{bookId}/{chapterId}`):**
-   - The primary reading viewport. Features an immersive full-screen canvas supporting Paging or Continuous Scroll modes.
-   - Tap-to-toggle overlay controls: Top app bar (back navigation, chapter title) and bottom scrubber (progress slider, settings bottom sheet).
-4. **`HistoryScreen` (`fable://history`):**
-   - Chronological timeline of recently read books and chapters, displaying reading progress percentage and a one-tap "Resume" button.
-5. **`SourceCatalogScreen` (`fable://sources`):**
-   - Displays available modular source extractors. Allows users to search remote websites and browse popular catalogs.
-6. **`SettingsScreen` (`fable://settings`):**
-   - Application preferences: Default reader theme, font choices, download storage management, and cache clearance.
+| ViewModel | Primary State & Responsibility |
+|---|---|
+| `CatalogViewModel` | Observes local Room stories and downloaded story IDs (`observeDownloadedStoryIds()`), drives catalog refresh, and manages per-story offline chapter download/removal (`OfflineDownloadUiState`). |
+| `ExploreViewModel` | Manages format-aware discovery (`ContentFormat.PROSE` vs `COMIC`), provider filters, debounced search across Fable/Gutenberg/Standard Ebooks/MangaDex, and cancels superseded searches. |
+| `ReaderViewModel` | Hydrates missing story chapters, debounces progress updates (350ms), records reading sessions (`ReadingSessionRecord`), manages reader typography/brightness/theme preferences, and coordinates Room passage highlights (`HighlightRepository`). |
+| `StoryEditorViewModel` | Validates and publishes new stories (`WriteScreen`), hydrates full chapter bodies before opening `EditStoryScreen` so summary responses never overwrite manuscripts, and executes owner story updates (`PATCH /stories/{id}`) and deletions (`DELETE /stories/{id}`). |
+| `WriterDraftViewModel` | Auto-saves in-progress manuscripts to `writer_drafts` in Room with debounced writes and explicit draft clearing. |
+| `AccountViewModel` | Manages sign-in, registration, profile updates, password reset, sign-out, account deletion (`DELETE /auth/me`), reading stats observation, and automatic 401 session expiry recovery. |
+| `ServerConfigViewModel` | Exposes and validates the runtime debug API base URL (`ServerUrlValidator`) in debug builds (`BuildConfig.DEBUG`). |
 
 ---
 
-## 3. Reader Themes & Ergonomic Palettes
+## 3. Adaptive Theme & WCAG AA Dark Palette
 
-Fable implements four dedicated reading themes:
-- **Light Theme:** `#FAFAFA` surface with `#1C1B1F` typography for bright daylight environments.
-- **Dark Theme:** `#121212` surface with `#E6E1E5` typography for low-light environments.
-- **AMOLED Pure Black Theme:** `#000000` surface with `#CCCCCC` typography for maximum battery savings on OLED panels.
-- **Sepia Paper Theme:** `#F4ECD8` surface with `#433422` typography to minimize blue-light eye strain during extended reading sessions.
+`ui/theme/Color.kt` and `ui/theme/Theme.kt` implement an editorial warm-paper light palette and a high-contrast WCAG AA dark palette driven by `ReaderPreferences.appAppearance` (`AppAppearance.SYSTEM`, `LIGHT`, `DARK`):
 
----
-
-## 4. Recomposition Optimization & Stability
-
-To maintain a consistent 60fps frame rate (<16ms per frame):
-- **Immutable UI State:** All UI state models are annotated with `@Immutable` or `@Stable`. Standard collections (`List<T>`) are wrapped or passed as immutable lists.
-- **Derived State:** State variables derived from frequent events (such as scroll positions or reading percentages) are wrapped in `derivedStateOf`:
-  ```kotlin
-  val isScrolledPastHeader by remember {
-      derivedStateOf { scrollState.value > 100 }
-  }
-  ```
-- **Stable Item Keys:** In `LazyColumn`, `LazyRow`, and `HorizontalPager`, unique keys are always provided:
-  ```kotlin
-  items(items = chapters, key = { it.id }) { chapter ->
-      ChapterItem(chapter = chapter, onClick = { onSelect(chapter.id) })
-  }
-  ```
-- **Stateless Sub-Components:** Reusable UI components never instantiate or hold ViewModels. They accept plain primitive or domain arguments and emit standard lambda callbacks (`onClick: () -> Unit`).
-
+- **Light Palette**: Warm paper background (`#FBF8F3`), surface (`#F4EFE6`), deep ink text (`#18181B`), muted text (`#52525B`), indigo primary (`#3949AB`).
+- **Dark Palette (WCAG AA compliant)**: Deep obsidian background (`#0B0F17`), elevated surface (`#111824`), crisp primary text (`#F1F5F9`), readable secondary text (`#A5B4C8`), luminous periwinkle primary (`#7890FF`).
+- **Reader Surface Override**: Inside `StoryReaderScreen`, the reader canvas applies its dedicated reading surface (`ReaderTheme.PAPER`, `SEPIA`, or `NIGHT`) and optional per-session window brightness (`ReaderWindowBrightnessEffect`).

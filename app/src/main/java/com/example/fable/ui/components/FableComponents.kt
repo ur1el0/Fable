@@ -15,12 +15,17 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ArrowDropDown
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.Bookmark
+import androidx.compose.material.icons.outlined.OfflinePin
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -102,7 +107,8 @@ fun StoryCover(
 fun StoryRow(
     story: Story,
     onClick: () -> Unit,
-    onToggleBookmark: () -> Unit = {}
+    onToggleBookmark: () -> Unit = {},
+    isAvailableOffline: Boolean = false
 ) {
     Surface(
         modifier = Modifier
@@ -131,12 +137,40 @@ fun StoryRow(
                 )
                 Text(story.author, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(
-                    "${story.genre}  ·  ${story.readTimeMinutes.coerceAtLeast(1)} min",
+                    listOfNotNull(
+                        story.sourceProvider.displayName,
+                        story.genre.takeIf(String::isNotBlank),
+                        "${story.readTimeMinutes.coerceAtLeast(1)} min"
+                    ).joinToString("  ·  "),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
+                if (isAvailableOffline) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.secondaryContainer,
+                        shape = RoundedCornerShape(4.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.OfflinePin,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                modifier = Modifier.size(12.dp)
+                            )
+                            Text(
+                                "Offline",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                        }
+                    }
+                }
                 if (story.progressPercent > 0) {
                     Spacer(Modifier.height(3.dp))
                     LinearProgressIndicator(
@@ -154,6 +188,56 @@ fun StoryRow(
                     contentDescription = if (story.isBookmarked) "Remove bookmark" else "Save story",
                     tint = if (story.isBookmarked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                 )
+            }
+        }
+    }
+}
+
+@Composable
+fun GenreInputField(
+    genre: String,
+    availableGenres: List<String>,
+    enabled: Boolean,
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+    onGenreChange: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
+        OutlinedTextField(
+            value = genre,
+            onValueChange = { onGenreChange(it.take(50)) },
+            modifier = Modifier.weight(1f),
+            enabled = enabled,
+            label = { Text("Genre") },
+            singleLine = true
+        )
+        if (availableGenres.isNotEmpty()) {
+            Box {
+                IconButton(
+                    onClick = { onExpandedChange(true) },
+                    enabled = enabled
+                ) {
+                    Icon(
+                        Icons.Outlined.ArrowDropDown,
+                        contentDescription = "Choose genre"
+                    )
+                }
+                DropdownMenu(
+                    expanded = expanded && enabled,
+                    onDismissRequest = { onExpandedChange(false) }
+                ) {
+                    availableGenres.forEach { option ->
+                        DropdownMenuItem(
+                            text = { Text(option) },
+                            enabled = enabled,
+                            onClick = {
+                                onGenreChange(option)
+                                onExpandedChange(false)
+                            }
+                        )
+                    }
+                }
             }
         }
     }

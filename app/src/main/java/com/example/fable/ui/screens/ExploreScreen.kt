@@ -1,5 +1,6 @@
 package com.example.fable.ui.screens
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -16,9 +17,12 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -50,18 +54,20 @@ import com.example.fable.ui.components.StoryRow
 fun ExploreScreen(
     modifier: Modifier = Modifier,
     stories: List<Story> = emptyList(),
+    offlineStoryIds: Set<String> = emptySet(),
     providerStories: List<Story> = emptyList(),
     genres: List<GenreCategory> = emptyList(),
     writers: List<Writer> = emptyList(),
     isSearchingProvider: Boolean = false,
     providerErrorMessage: String? = null,
-    onSearchProvider: (StoryCatalog, String) -> Unit = { _, _ -> },
+    onSearchProvider: (StoryCatalog, String, String?) -> Unit = { _, _, _ -> },
     onStorySelected: (Story) -> Unit = {},
     onToggleBookmark: (Story) -> Unit = {}
 ) {
     var query by rememberSaveable { mutableStateOf("") }
     var format by rememberSaveable { mutableStateOf("All") }
     var selectedCatalog by rememberSaveable { mutableStateOf(StoryCatalog.FABLE) }
+    var selectedGutenbergSort by rememberSaveable { mutableStateOf("catalog") }
     val catalogStories = if (selectedCatalog == StoryCatalog.FABLE) stories else providerStories
     val filtered = remember(catalogStories, selectedCatalog, query, format) {
         catalogStories.filter { story ->
@@ -86,11 +92,33 @@ fun ExploreScreen(
                 value = query,
                 onValueChange = {
                     query = it
-                    if (selectedCatalog != StoryCatalog.FABLE) onSearchProvider(selectedCatalog, it)
+                    if (selectedCatalog != StoryCatalog.FABLE) {
+                        onSearchProvider(selectedCatalog, it, selectedGutenbergSort.takeIf { selectedCatalog == StoryCatalog.GUTENBERG })
+                    }
                 },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
+                trailingIcon = if (query.isNotEmpty()) {
+                    {
+                        IconButton(
+                            onClick = {
+                                query = ""
+                                if (selectedCatalog != StoryCatalog.FABLE) {
+                                    onSearchProvider(
+                                        selectedCatalog,
+                                        "",
+                                        selectedGutenbergSort.takeIf { selectedCatalog == StoryCatalog.GUTENBERG }
+                                    )
+                                }
+                            }
+                        ) {
+                            Icon(Icons.Outlined.Close, contentDescription = "Clear search")
+                        }
+                    }
+                } else {
+                    null
+                },
                 placeholder = { Text("Stories, authors, genres") },
                 shape = MaterialTheme.shapes.small
             )
@@ -103,13 +131,18 @@ fun ExploreScreen(
                         onClick = {
                             selectedCatalog = catalog
                             format = "All"
-                            onSearchProvider(catalog, query)
+                            onSearchProvider(
+                                catalog,
+                                query,
+                                selectedGutenbergSort.takeIf { catalog == StoryCatalog.GUTENBERG }
+                            )
                         },
                         label = {
                             Text(
                                 when (catalog) {
                                     StoryCatalog.FABLE -> "Fable"
                                     StoryCatalog.GUTENBERG -> "Gutenberg"
+                                    StoryCatalog.STANDARD_EBOOKS -> "Standard Ebooks"
                                     StoryCatalog.MANGA -> "MangaDex"
                                 }
                             )
@@ -126,6 +159,29 @@ fun ExploreScreen(
             }
         }
 
+        if (selectedCatalog == StoryCatalog.GUTENBERG) item {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(listOf("catalog", "popular", "recent")) { sort ->
+                    FilterChip(
+                        selected = selectedGutenbergSort == sort,
+                        onClick = {
+                            selectedGutenbergSort = sort
+                            onSearchProvider(StoryCatalog.GUTENBERG, query, sort)
+                        },
+                        label = {
+                            Text(
+                                when (sort) {
+                                    "popular" -> "Popular"
+                                    "recent" -> "Recent"
+                                    else -> "Catalog"
+                                }
+                            )
+                        }
+                    )
+                }
+            }
+        }
+
         if (genres.isNotEmpty()) {
             item { SectionTitle("Popular genres") }
             item {
@@ -135,7 +191,13 @@ fun ExploreScreen(
                             selected = false,
                             onClick = {
                                 query = genre.name
-                                if (selectedCatalog != StoryCatalog.FABLE) onSearchProvider(selectedCatalog, genre.name)
+                                if (selectedCatalog != StoryCatalog.FABLE) {
+                                    onSearchProvider(
+                                        selectedCatalog,
+                                        genre.name,
+                                        selectedGutenbergSort.takeIf { selectedCatalog == StoryCatalog.GUTENBERG }
+                                    )
+                                }
                             },
                             label = { Text(genre.name) }
                         )
@@ -149,7 +211,21 @@ fun ExploreScreen(
             item {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
                     items(writers, key = Writer::id) { writer ->
-                        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(76.dp)) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier
+                                .width(76.dp)
+                                .clickable {
+                                    query = writer.name
+                                    if (selectedCatalog != StoryCatalog.FABLE) {
+                                        onSearchProvider(
+                                            selectedCatalog,
+                                            writer.name,
+                                            selectedGutenbergSort.takeIf { selectedCatalog == StoryCatalog.GUTENBERG }
+                                        )
+                                    }
+                                }
+                        ) {
                             Surface(
                                 shape = CircleShape,
                                 color = MaterialTheme.colorScheme.surfaceVariant,
@@ -170,11 +246,20 @@ fun ExploreScreen(
             }
         }
 
+        if (isSearchingProvider) {
+            item {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            }
+        }
+
         item {
             SectionTitle(
                 when {
                     query.isNotBlank() -> "Search results"
+                    selectedCatalog == StoryCatalog.GUTENBERG && selectedGutenbergSort == "recent" -> "New on Gutenberg"
+                    selectedCatalog == StoryCatalog.GUTENBERG && selectedGutenbergSort == "popular" -> "Popular on Gutenberg"
                     selectedCatalog == StoryCatalog.GUTENBERG -> "Project Gutenberg"
+                    selectedCatalog == StoryCatalog.STANDARD_EBOOKS -> "Standard Ebooks"
                     selectedCatalog == StoryCatalog.MANGA -> "Manga"
                     else -> "Stories"
                 }
@@ -194,7 +279,13 @@ fun ExploreScreen(
                             color = MaterialTheme.colorScheme.onErrorContainer
                         )
                         TextButton(
-                            onClick = { onSearchProvider(selectedCatalog, query) },
+                            onClick = {
+                                onSearchProvider(
+                                    selectedCatalog,
+                                    query,
+                                    selectedGutenbergSort.takeIf { selectedCatalog == StoryCatalog.GUTENBERG }
+                                )
+                            },
                             modifier = Modifier.align(Alignment.End)
                         ) {
                             Text("Retry")
@@ -208,7 +299,14 @@ fun ExploreScreen(
                 EmptyState(
                     title = if (query.isBlank()) "No stories to explore" else "No matches",
                     message = when {
-                        isSearchingProvider -> "Searching ${selectedCatalog.name.lowercase().replaceFirstChar(Char::uppercase)}"
+                        isSearchingProvider -> "Searching ${
+                            when (selectedCatalog) {
+                                StoryCatalog.FABLE -> "Fable"
+                                StoryCatalog.GUTENBERG -> "Project Gutenberg"
+                                StoryCatalog.STANDARD_EBOOKS -> "Standard Ebooks"
+                                StoryCatalog.MANGA -> "MangaDex"
+                            }
+                        }"
                         providerErrorMessage != null && selectedCatalog != StoryCatalog.FABLE -> providerErrorMessage
                         query.isBlank() -> "The catalog will appear here when it is available."
                         else -> "Try a different title, author, or genre."
@@ -217,7 +315,12 @@ fun ExploreScreen(
             }
         } else {
             items(filtered, key = Story::id) { story ->
-                StoryRow(story, onClick = { onStorySelected(story) }, onToggleBookmark = { onToggleBookmark(story) })
+                StoryRow(
+                    story = story,
+                    onClick = { onStorySelected(story) },
+                    onToggleBookmark = { onToggleBookmark(story) },
+                    isAvailableOffline = story.id in offlineStoryIds
+                )
             }
         }
     }

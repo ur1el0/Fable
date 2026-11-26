@@ -1,95 +1,81 @@
-# 05 Networking & Source Extractor Pipeline
+# 05 Networking & Shared Fable API Integration
 
-## Current Product API
+## 1. Shared Backend Architecture (No Client-Side HTML Scraping)
 
-The Android client mirrors the contracts served by the Fable-IOS FastAPI backend. Catalog and provider responses are treated as remote content; the Android Room database remains authoritative for the user's saved stories, reading progress, and cached chapters.
+Per **ADR 009** and **ADR 010**, Fable Android does **not** scrape third-party websites or parse HTML via Jsoup on the device. All catalog discovery, public-domain book ingestion, manga metadata/pages, authentication, story publishing, and cross-device synchronization flow through the shared FastAPI backend (`https://fable-api-cbo8.onrender.com/api/v1/`).
 
-The first API group covers `GET /api/v1/stories`, `GET /api/v1/stories/{storyId}`, chapter lists and individual chapters, `GET /api/v1/genres`, `GET /api/v1/authors/top`, and `GET /api/v1/updates`. Provider catalogs, account actions, story publishing, and shelf synchronization are added as separate implementation milestones.
-
-The app's shared domain model is `Story`, with `ContentFormat` distinguishing prose from manga and `SourceProvider` identifying the catalog provider. Android DTOs mirror the backend's camel-case JSON aliases and ignore additional response properties so compatible backend additions do not break the client.
-
-The older extractor contract below remains a possible future extension for direct website sources. It is not the current path for Fable's curated catalog, Gutenberg, or MangaDex content; those sources are reached through the shared backend.
-
-## 1. Modular Source Extractor Architecture
-
-Fable decouples external web content ingestion from the core application using a modular extractor interface. Every website scraper implements the unified `Source` contract:
-
-```kotlin
-interface Source {
-    val id: String
-    val name: String
-    val baseUrl: String
-    val iconUrl: String?
-
-    suspend fun getPopularBooks(page: Int): List<Book>
-    suspend fun searchBooks(query: String, page: Int): List<Book>
-    suspend fun getBookDetails(bookUrl: String): Book
-    suspend fun getChapterList(bookUrl: String): List<Chapter>
-    suspend fun getChapterContent(chapterUrl: String): String
-}
 ```
-
-By isolating CSS selectors and URL query construction inside discrete extractor classes, external website redesigns or DOM changes can be repaired without touching the UI, Room database, or reader rendering code.
+┌──────────────────────────────────────────────────────────────────────┐
+│                         Fable Android Client                         │
+│  RoomStoryRepository · RemoteAccountRepository · ReadingStatsRepo    │
+└──────────────────┬───────────────────────────────────┬───────────────┘
+                   │                                   │
+                   ▼                                   ▼
+      ┌─────────────────────────┐         ┌─────────────────────────┐
+      │     FableApiService     │         │     MangaApiService     │
+      │  /api/v1/stories/*      │         │  /api/v1/manga/*        │
+      │  /api/v1/books/*        │         │  Strict URL Validation  │
+      │  /api/v1/auth/*         │         └────────────┬────────────┘
+      │  /api/v1/me/*           │                      │
+      └────────────┬────────────┘                      │
+                   └─────────────────┬─────────────────┘
+                                     ▼
+                    ┌─────────────────────────────────┐
+                    │         FableHttpClient         │
+                    │  Shared OkHttpClient Singleton  │
+                    │  connect=10s, read/write=20s,   │
+                    │  call=30s · executeCancellable  │
+                    └────────────────┬────────────────┘
+                                     ▼
+                    ┌─────────────────────────────────┐
+                    │   Shared Fable FastAPI Backend  │
+                    │  Fable Originals · Gutenberg    │
+                    │  Standard Ebooks · MangaDex     │
+                    └─────────────────────────────────┘
+```
 
 ---
 
-## 2. OkHttp Networking Pipeline
+## 2. Shared Cancellable OkHttp Transport (`FableHttpClient`)
 
-All network communication routes through a centralized, optimized OkHttp client:
+`data/remote/FableHttpClient.kt` provides a shared `OkHttpClient` instance with bounded timeouts:
+- `connectTimeout`: 10 seconds
+- `readTimeout`: 20 seconds
+- `writeTimeout`: 20 seconds
+- `callTimeout`: 30 seconds
 
-```kotlin
-class NetworkClient {
-    val okHttpClient: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
-        .writeTimeout(15, TimeUnit.SECONDS)
-        .addInterceptor { chain ->
-            val request = chain.request().newBuilder()
-                .header("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36")
-                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-                .header("Accept-Language", "en-US,en;q=0.9")
-                .build()
-            chain.proceed(request)
-        }
-        .build()
-}
-```
-
-### Ethical Scraping & Rate Limiting
-To prevent IP bans and respect web servers:
-- Minimum delay of **500ms** enforced between consecutive chapter downloads.
-- Automatic exponential backoff when encountering HTTP 429 (Too Many Requests).
+All requests run on `Dispatchers.IO` via `OkHttpClient.executeCancellable(request)`, which uses `suspendCancellableCoroutine` to invoke `call.cancel()` immediately whenever the calling Kotlin coroutine (such as a superseded search in `ExploreViewModel`) is cancelled.
 
 ---
 
-## 3. Jsoup Content Extraction & Sanitization Pipeline
+## 3. Integrated API Endpoints
 
-When an extractor fetches raw HTML for a chapter, it routes through a two-stage parsing and sanitization pipeline:
+### `FableApiService`
+- **Fable Originals & Story Management**:
+  - `GET /stories` — Fetch catalog stories.
+  - `GET /stories/{id}` — Fetch full story detail and chapters.
+  - `POST /stories` — Publish a new story (authenticated).
+  - `PATCH /stories/{id}` — Update an owned story (`UpdateStoryRequestDto`, authenticated owner).
+  - `DELETE /stories/{id}` — Delete an owned story (authenticated owner).
+- **Project Gutenberg**:
+  - `GET /books/gutenberg/discover`, `GET /books/gutenberg/search?q=...`, `GET /books/gutenberg/{externalId}/chapters`
+- **Standard Ebooks**:
+  - `GET /books/standard-ebooks/discover`, `GET /books/standard-ebooks/search?q=...`, `GET /books/standard-ebooks/{externalId}`, `GET /books/standard-ebooks/{externalId}/chapters`
+- **Authentication & Account Lifecycle**:
+  - `POST /auth/register`, `POST /auth/login`, `POST /auth/logout`, `POST /auth/password-reset`
+  - `GET /auth/me`, `PATCH /auth/me`, `DELETE /auth/me`
+- **Shelf & Reading Stats Synchronization**:
+  - `GET /me/shelf`, `PUT /me/shelf/{storyId}`, `DELETE /me/shelf/{storyId}`
+  - `POST /me/reading-sessions`, `GET /me/stats`
 
-```
-[Raw HTML Response] 
-        │
-        ▼
-[Jsoup DOM Parsing] (CSS Selectors isolate chapter container)
-        │
-        ▼
-[Jsoup Sanitization Filter] (Safelist strips scripts, iframes, styles, ads)
-        │
-        ▼
-[Clean Structured HTML] (Stored in Scoped Storage sandbox)
-```
+### `MangaApiService`
+- `GET /manga/discover`, `GET /manga/search?q=...`, `GET /manga/{id}`, `GET /manga/{id}/chapters`, `GET /manga/{id}/chapters/{chapterId}/pages`
+- Validates cover and page image URLs (`sanitizeHttpUrl`) so only valid `http`/`https` URLs with a non-blank host reach Coil or the reader UI.
 
-### Strict Sanitizer Safelist
-```kotlin
-fun sanitizeChapterHtml(rawHtml: String): String {
-    val safelist = Safelist.relaxed()
-        .removeTags("script", "style", "iframe", "embed", "object", "form", "input", "button")
-        .removeAttributes(":all", "onclick", "onload", "onerror", "style", "id", "class")
-    return Jsoup.clean(rawHtml, safelist)
-}
-```
+---
 
-### Memory-Conscious DOM Traversal
-- Jsoup `Document` objects are parsed strictly on `Dispatchers.Default`.
-- The cleaned text or HTML string is extracted immediately, and the heavy DOM tree is allowed to be garbage collected to prevent memory bloat.
+## 4. Runtime Debug Server URL Switcher & Release Enforcement
 
+- **`ServerUrlValidator`**: Normalizes user-entered URLs to end with `/api/v1/`, validates scheme/host, blocks credentials in URLs, and enforces `https://` in release mode (`requireHttps = true`).
+- **`DebugServerConfigStore`**: Allows developers in `BuildConfig.DEBUG` builds to switch between the hosted Render API, Android Emulator localhost (`http://10.0.2.2:8000/api/v1/`), or a LAN server IP at runtime from **Account → Developer server**.
+- **Release Hardening**: In release builds (`BuildConfig.DEBUG == false`), runtime URL switching is disabled and `:app:validateReleaseApiBaseUrl` verifies at build time that `FABLE_API_BASE_URL` uses `https://` and does not point to a local/private address.

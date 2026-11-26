@@ -56,4 +56,44 @@ interface StoryDao {
         upsertChapters(chapters)
     }
 
+    @Query(
+        "SELECT DISTINCT storyId FROM chapters " +
+            "WHERE TRIM(content) != '' OR (pageUrls != '[]' AND TRIM(pageUrls) != '') " +
+            "UNION " +
+            "SELECT id FROM stories WHERE TRIM(content) != ''"
+    )
+    fun observeDownloadedStoryIds(): Flow<List<String>>
+
+    @Query("UPDATE stories SET content = '' WHERE id = :storyId")
+    suspend fun clearStoryContent(storyId: String)
+
+    @Query("DELETE FROM stories WHERE id = :storyId")
+    suspend fun deleteStory(storyId: String)
+
+    @Query("DELETE FROM stories WHERE ownerUserId = :ownerId")
+    suspend fun deleteStoriesByOwner(ownerId: String)
+
+    @Query("DELETE FROM shelf_states WHERE storyId = :storyId")
+    suspend fun deleteShelfStatesForStory(storyId: String)
+
+    @Query("DELETE FROM shelf_states WHERE ownerId = :ownerId")
+    suspend fun deleteShelfStatesForOwner(ownerId: String)
+
+    @Transaction
+    suspend fun clearOfflineCache(storyId: String) {
+        deleteChapters(storyId)
+        clearStoryContent(storyId)
+    }
+
+    @Transaction
+    suspend fun deleteStoryAndShelfStates(storyId: String) {
+        deleteShelfStatesForStory(storyId)
+        deleteStory(storyId)
+    }
+
+    @Transaction
+    suspend fun purgeAccountData(ownerId: String) {
+        deleteShelfStatesForOwner(ownerId)
+        deleteStoriesByOwner(ownerId)
+    }
 }

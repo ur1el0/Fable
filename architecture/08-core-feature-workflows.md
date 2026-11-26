@@ -1,47 +1,39 @@
 # 08 Core Feature Workflows
 
-These flows describe the current Android client and shared backend boundary. Provider-specific work is performed by the shared backend, not by Android-side scrapers.
+## 1. Multi-Source Discovery & Parallel Catalog Refresh
 
-## 1. Catalog Refresh and Local Cache
+1. **Startup & Pull-to-Refresh (`CatalogViewModel.refreshCatalog`)**:
+   - Calls `RoomStoryRepository.refreshCatalog()`, which uses `supervisorScope` to fetch Fable Originals, Project Gutenberg, Standard Ebooks, and MangaDex discovery feeds in parallel.
+   - Each provider's results are upserted into Room while `coalesceChapters` preserves any previously downloaded chapter bodies or comic page descriptors.
+   - If an external provider (e.g., Gutenberg, Standard Ebooks, or MangaDex) fails or times out, Fable Originals and cached Room stories still update and render without failing the entire refresh.
+2. **Format-Aware Explore Search (`ExploreViewModel`)**:
+   - Switching between **Books** (`ContentFormat.PROSE`) and **Manga & Comics** (`ContentFormat.COMIC`) filters the local catalog immediately and scopes remote search queries to the selected provider (`All Books`, `Fable`, `Gutenberg`, `Standard Ebooks`, or `MangaDex`).
+   - Rapid query edits cancel the previous coroutine job, which cancels the underlying in-flight OkHttp call via `FableHttpClient.executeCancellable()`.
 
-1. The UI observes catalog and shelf data from Room.
-2. The ViewModel asks the repository to refresh the shared catalog or provider results.
-3. FableApiService makes the API request.
-4. The repository maps the response and persists it to Room.
-5. Room Flow emissions update the UI.
-6. If the request fails, existing cached stories remain available and the UI receives an error state.
+---
 
-## 2. Story and On-Demand Chapter Loading
+## 2. Reading, Offline Download & Session Sync Workflow
 
-1. The user opens a story from discovery, the library, or the shelf.
-2. The repository loads locally cached story and chapter data.
-3. Missing metadata or chapter content is fetched through the shared API when needed.
-4. Returned chapter data is merged into Room without replacing richer cached content with metadata-only values.
-5. The reader observes the persisted chapters and requests another chapter when navigation or continuous reading requires it.
+1. **Opening a Story (`StoryDetailScreen` $\rightarrow$ `StoryReaderScreen`)**:
+   - If the story's chapters are already cached in Room (`storyId in downloadedStoryIds`), the reader renders immediately offline.
+   - Otherwise, `ReaderViewModel` triggers `RoomStoryRepository.refreshStory(storyId)` (and `fetchMangaChapterPages` for comic chapters) and persists the hydrated chapters to Room.
+2. **Explicit Offline Management (`OfflineCacheCard`)**:
+   - Tapping **Download for offline** downloads all chapters for the story into Room and marks the story with an `"Offline"` badge across Library, Explore, and Shelf (`Offline` filter tab).
+   - Tapping **Remove offline copy** clears the cached chapter bodies (`StoryDao.clearOfflineCache`) while preserving story metadata and shelf progress.
+3. **Progress & Reading Session Recording**:
+   - Scroll/page changes are debounced (`350ms`) and written to `shelf_states` (`pendingSync = true` when offline).
+   - Exiting the reader or backgrounding the app records a `ReadingSessionRecord` (`durationSeconds >= 5`, `wordsRead`) into `reading_sessions` and `reading_stats`, then attempts background sync with `/api/v1/me/reading-sessions`.
 
-## 3. Account-Scoped Shelf Synchronization
+---
 
-1. Account state supplies the current owner identifier, or the repository uses the guest scope while signed out.
-2. Bookmark, completion, and reading-position changes are written to local shelf state.
-3. When signed in and online, the repository synchronizes local changes with the shared API using the account and device identity.
-4. A failed synchronization leaves local shelf state intact for a later retry.
-5. Switching accounts changes the observed shelf scope; one owner's state must not be shown as another owner's shelf.
+## 3. Author Manuscript, Publishing & Story Edit/Delete Workflow
 
-## 4. Reading Sessions and Statistics
-
-1. Reader lifecycle events update local reading progress and record completed reading sessions in Room.
-2. Pending sessions are retained locally until the account is available and the API sync succeeds.
-3. The repository stores returned aggregate reading statistics locally.
-4. The Shelf screen observes cached statistics and can refresh them when appropriate.
-
-## 5. Account and Publishing
-
-1. Account actions are initiated by AccountViewModel and delegated to the account repository.
-2. The repository calls the shared API and manages session state through the session store.
-3. Publishing requires an authenticated user and sends the story through the shared API.
-4. Success or failure is reflected in immutable UI state; provider and publishing logic are not implemented in the presentation layer.
-
-## Offline Boundary
-
-Previously cached stories, chapters, reader preferences, and local reading state remain available offline. Remote search, uncached content, authentication, publishing, and cross-device synchronization do not. There is no current WorkManager batch-download workflow.
-
+1. **Draft Auto-Save (`WriteScreen` + `WriterDraftViewModel`)**:
+   - Edits to title, genre, synopsis, chapter title, or manuscript body are debounced and persisted to `writer_drafts` in Room so work is never lost on process death.
+2. **Publishing (`StoryEditorViewModel.publishStory`)**:
+   - Validates required fields and minimum manuscript length, parses `Chapter N:` markers into discrete chapters, and sends `POST /api/v1/stories`.
+   - Inserts the newly created `Story` (with `ownerUserId = currentUser.id`) into Room and clears the local draft.
+3. **Editing & Deleting Owned Stories (`EditStoryScreen`, `StoryDetailScreen`, `AccountScreen`)**:
+   - Only stories where `story.provider == StoryProvider.FABLE` and `story.ownerUserId == currentUser.id` expose **Edit** and **Delete** controls.
+   - Before editing, `StoryEditorViewModel.loadStoryForEdit(storyId)` calls `storyRepository.refreshStory(storyId)` if local chapter bodies are blank so summary responses never overwrite full manuscripts.
+   - Saving calls `PATCH /api/v1/stories/{id}` (`UpdateStoryRequestDto`) and updates Room; deleting calls `DELETE /api/v1/stories/{id}` and removes the story and its shelf state from Room.

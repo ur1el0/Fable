@@ -19,6 +19,7 @@ import com.example.fable.data.remote.dto.ShelfSyncResponseDto
 import com.example.fable.data.remote.dto.ShelfSyncItemDto
 import com.example.fable.data.remote.dto.StoryDto
 import com.example.fable.data.remote.dto.UpdateFeedDto
+import com.example.fable.data.remote.dto.UpdateStoryRequestDto
 import com.example.fable.data.remote.dto.UserDto
 import com.example.fable.data.remote.dto.WriterDto
 import kotlinx.coroutines.Dispatchers
@@ -26,10 +27,6 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.decodeFromString
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
@@ -38,12 +35,22 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 
 class FableApiService(
-    baseUrl: String,
-    private val client: OkHttpClient = OkHttpClient(),
+    private val baseUrlProvider: () -> String,
+    private val client: OkHttpClient = FableHttpClientFactory.create(),
     private val json: Json = Json { ignoreUnknownKeys = true },
     private val accessTokenProvider: () -> String? = { null }
 ) : ReadingStatsRemoteDataSource {
-    private val baseUrl: HttpUrl? = baseUrl.takeIf(String::isNotBlank)?.toHttpUrlOrNull()
+    constructor(
+        baseUrl: String,
+        client: OkHttpClient = FableHttpClientFactory.create(),
+        json: Json = Json { ignoreUnknownKeys = true },
+        accessTokenProvider: () -> String? = { null }
+    ) : this(
+        baseUrlProvider = { baseUrl },
+        client = client,
+        json = json,
+        accessTokenProvider = accessTokenProvider
+    )
 
     suspend fun fetchHealth(): HealthDto = get(url("health"), accessToken = null)
 
@@ -71,10 +78,15 @@ class FableApiService(
     suspend fun fetchChapter(storyId: String, chapterNumber: Int): ChapterDto =
         get(url("stories", storyId, "chapters", chapterNumber.toString()))
 
-    suspend fun fetchGutenbergStories(topic: String? = null, search: String? = null): List<StoryDto> =
+    suspend fun fetchGutenbergStories(
+        topic: String? = null,
+        search: String? = null,
+        sort: String? = null
+    ): List<StoryDto> =
         get(url("public", "gutenberg") {
             topic?.takeIf(String::isNotBlank)?.let { addQueryParameter("topic", it) }
             search?.takeIf(String::isNotBlank)?.let { addQueryParameter("search", it) }
+            sort?.takeIf(String::isNotBlank)?.let { addQueryParameter("sort", it) }
         })
 
     suspend fun fetchGutenbergStory(gutenbergId: Int): StoryDto =
@@ -83,25 +95,27 @@ class FableApiService(
     suspend fun fetchGutenbergChapters(gutenbergId: Int): List<ChapterDto> =
         get(url("public", "gutenberg", gutenbergId.toString(), "chapters"))
 
-    suspend fun fetchMangaStories(
-        search: String? = null,
-        limit: Int = 20,
-        offset: Int = 0
+    suspend fun fetchStandardEbooksStories(
+        topic: String? = null,
+        search: String? = null
     ): List<StoryDto> = get(
-        url("public", "manga") {
+        url("public", "standard-ebooks") {
+            topic?.takeIf(String::isNotBlank)?.let { addQueryParameter("topic", it) }
             search?.takeIf(String::isNotBlank)?.let { addQueryParameter("search", it) }
-            addQueryParameter("limit", limit.toString())
-            addQueryParameter("offset", offset.toString())
         }
     )
 
-    suspend fun fetchMangaStory(mangaId: String): StoryDto =
-        get(url("public", "manga", mangaId))
+    suspend fun fetchStandardEbooksStory(bookId: String): StoryDto = get(
+        url("public", "standard-ebooks", "story") {
+            addQueryParameter("book_id", bookId)
+        }
+    )
 
-    suspend fun fetchMangaChapters(mangaId: String, limit: Int = 20): List<ChapterDto> =
-        get(url("public", "manga", mangaId, "chapters") {
-            addQueryParameter("limit", limit.toString())
-        })
+    suspend fun fetchStandardEbooksChapters(bookId: String): List<ChapterDto> = get(
+        url("public", "standard-ebooks", "chapters") {
+            addQueryParameter("book_id", bookId)
+        }
+    )
 
     suspend fun fetchGenres(): List<GenreDto> = get(url("genres"))
 
@@ -111,6 +125,12 @@ class FableApiService(
 
     suspend fun createStory(request: CreateStoryRequestDto): StoryDto =
         postJson(url("stories"), request, accessTokenProvider())
+
+    suspend fun updateStory(storyId: String, request: UpdateStoryRequestDto): StoryDto =
+        patchJson(url("stories", storyId), request, accessTokenProvider())
+
+    suspend fun deleteStory(storyId: String) =
+        deleteNoContent(url("stories", storyId), accessTokenProvider())
 
     suspend fun register(request: RegisterRequestDto): AuthResponseDto =
         postJson(url("auth", "register"), request)
@@ -135,6 +155,9 @@ class FableApiService(
     suspend fun updateProfile(request: ProfileUpdateRequestDto): UserDto =
         patchJson(url("auth", "me"), request, accessTokenProvider())
 
+    suspend fun deleteAccount() =
+        deleteNoContent(url("auth", "me"), accessTokenProvider())
+
     suspend fun logout() = postNoContent(url("auth", "logout"), accessTokenProvider())
 
     suspend fun requestPasswordReset(request: PasswordResetRequestDto): PasswordResetAcceptedDto =
@@ -156,117 +179,88 @@ class FableApiService(
         accessToken
     )
 
-    private fun url(vararg segments: String, query: HttpUrl.Builder.() -> Unit = {}): HttpUrl =
-        (baseUrl ?: throw FableApiException(0, "Fable API URL is not configured."))
+    private fun url(vararg segments: String, query: HttpUrl.Builder.() -> Unit = {}): HttpUrl {
+        val resolvedBaseUrl = baseUrlProvider().takeIf(String::isNotBlank)?.toHttpUrlOrNull()
+            ?: throw FableApiException(0, "Fable API URL is not configured.")
+        return resolvedBaseUrl
             .newBuilder()
             .addPathSegments(segments.joinToString("/"))
             .apply(query)
             .build()
+    }
 
     private suspend inline fun <reified T> get(
         url: HttpUrl,
         accessToken: String? = accessTokenProvider()
-    ): T = withContext(Dispatchers.IO) {
-        val requestBuilder = Request.Builder().url(url).get()
-        accessToken?.takeIf(String::isNotBlank)?.let { token ->
-            requestBuilder.header("Authorization", "Bearer $token")
-        }
-        val request = requestBuilder.build()
-        client.newCall(request).execute().use { response ->
-            val payload = response.body?.string().orEmpty()
-            if (!response.isSuccessful) {
-                val detail = parseErrorDetail(payload)
-                throw FableApiException(response.code, detail ?: "The server could not complete the request.")
-            }
-            json.decodeFromString<T>(payload)
-        }
-    }
+    ): T = executeForJson(Request.Builder().url(url).get(), accessToken)
 
     private suspend inline fun <reified T, reified B> postJson(
         url: HttpUrl,
         body: B,
         accessToken: String? = null
-    ): T =
-        withContext(Dispatchers.IO) {
-            val requestBody = json.encodeToString(body)
-                .toRequestBody("application/json; charset=utf-8".toMediaType())
-            val requestBuilder = Request.Builder().url(url).post(requestBody)
-            accessToken?.takeIf(String::isNotBlank)?.let { requestBuilder.header("Authorization", "Bearer $it") }
-            val request = requestBuilder.build()
-            client.newCall(request).execute().use { response ->
-                val payload = response.body?.string().orEmpty()
-                if (!response.isSuccessful) {
-                    val detail = parseErrorDetail(payload)
-                    throw FableApiException(response.code, detail ?: "The server could not complete the request.")
-                }
-                json.decodeFromString<T>(payload)
-            }
-        }
+    ): T {
+        val requestBody = json.encodeToString(body)
+            .toRequestBody("application/json; charset=utf-8".toMediaType())
+        return executeForJson(Request.Builder().url(url).post(requestBody), accessToken)
+    }
 
     private suspend inline fun <reified T, reified B> patchJson(
         url: HttpUrl,
         body: B,
         accessToken: String?
-    ): T = withContext(Dispatchers.IO) {
+    ): T {
         val requestBody = json.encodeToString(body)
             .toRequestBody("application/json; charset=utf-8".toMediaType())
-        val requestBuilder = Request.Builder().url(url).patch(requestBody)
-        accessToken?.takeIf(String::isNotBlank)?.let { requestBuilder.header("Authorization", "Bearer $it") }
-        client.newCall(requestBuilder.build()).execute().use { response ->
+        return executeForJson(Request.Builder().url(url).patch(requestBody), accessToken)
+    }
+
+    private suspend fun postNoContent(url: HttpUrl, accessToken: String?) =
+        executeNoContent(Request.Builder().url(url).post(ByteArray(0).toRequestBody()), accessToken)
+
+    private suspend fun deleteNoContent(url: HttpUrl, accessToken: String?) =
+        executeNoContent(Request.Builder().url(url).delete(), accessToken)
+
+    private suspend inline fun <reified B> postNoContentWithBody(
+        url: HttpUrl,
+        body: B,
+        accessToken: String?
+    ) {
+        val requestBody = json.encodeToString(body).toRequestBody("application/json; charset=utf-8".toMediaType())
+        executeNoContent(Request.Builder().url(url).post(requestBody), accessToken)
+    }
+
+    private suspend inline fun <reified T> executeForJson(
+        requestBuilder: Request.Builder,
+        accessToken: String?
+    ): T = withContext(Dispatchers.IO) {
+        accessToken?.takeIf(String::isNotBlank)?.let { token ->
+            requestBuilder.header("Authorization", "Bearer $token")
+        }
+        client.newCall(requestBuilder.build()).awaitResponse().use { response ->
             val payload = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
-                val detail = parseErrorDetail(payload)
+                val detail = parseApiErrorDetail(json, payload)
                 throw FableApiException(response.code, detail ?: "The server could not complete the request.")
             }
             json.decodeFromString<T>(payload)
         }
     }
 
-    private suspend fun postNoContent(url: HttpUrl, accessToken: String?) = withContext(Dispatchers.IO) {
-        val requestBuilder = Request.Builder().url(url).post(ByteArray(0).toRequestBody())
-        accessToken?.takeIf(String::isNotBlank)?.let { requestBuilder.header("Authorization", "Bearer $it") }
-        client.newCall(requestBuilder.build()).execute().use { response ->
-            if (!response.isSuccessful) {
-                val payload = response.body?.string().orEmpty()
-                val detail = parseErrorDetail(payload)
-                throw FableApiException(response.code, detail ?: "The server could not complete the request.")
-            }
-        }
-    }
-
-    private suspend inline fun <reified B> postNoContentWithBody(
-        url: HttpUrl,
-        body: B,
+    private suspend fun executeNoContent(
+        requestBuilder: Request.Builder,
         accessToken: String?
     ) = withContext(Dispatchers.IO) {
-        val requestBody = json.encodeToString(body).toRequestBody("application/json; charset=utf-8".toMediaType())
-        val requestBuilder = Request.Builder().url(url).post(requestBody)
-        accessToken?.takeIf(String::isNotBlank)?.let { requestBuilder.header("Authorization", "Bearer $it") }
-        client.newCall(requestBuilder.build()).execute().use { response ->
+        accessToken?.takeIf(String::isNotBlank)?.let { token ->
+            requestBuilder.header("Authorization", "Bearer $token")
+        }
+        client.newCall(requestBuilder.build()).awaitResponse().use { response ->
             if (!response.isSuccessful) {
                 val payload = response.body?.string().orEmpty()
-                val detail = parseErrorDetail(payload)
+                val detail = parseApiErrorDetail(json, payload)
                 throw FableApiException(response.code, detail ?: "The server could not complete the request.")
             }
         }
     }
-
-    private fun parseErrorDetail(payload: String): String? = runCatching {
-        val element = json.parseToJsonElement(payload)
-        val detail = (element as? JsonObject)?.get("detail") ?: return null
-        when (detail) {
-            is JsonPrimitive -> detail.content.takeIf(String::isNotBlank)
-            is JsonArray -> detail
-                .mapNotNull { item ->
-                    (item as? JsonObject)?.get("msg")?.let { (it as? JsonPrimitive)?.content }
-                        ?: (item as? JsonPrimitive)?.content
-                }
-                .filter(String::isNotBlank)
-                .joinToString("; ")
-                .takeIf(String::isNotBlank)
-            else -> null
-        }
-    }.getOrNull()
 }
 
 class FableApiException(val statusCode: Int, message: String) : Exception(message)

@@ -9,6 +9,7 @@ import com.example.fable.data.remote.FableApiService
 import com.example.fable.data.remote.dto.StoryDto
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.test.runTest
@@ -146,6 +147,43 @@ class RoomStoryRepositoryShelfScopeTest {
                 updated[storyId] = byNumber.values.sortedBy(ChapterEntity::chapterNumber)
             }
             this.chapters.value = updated
+        }
+
+        override fun observeDownloadedStoryIds(): Flow<List<String>> =
+            combine(stories, chapters) { storyMap, chapterMap ->
+                buildSet {
+                    storyMap.values.filter { it.content.isNotBlank() }.forEach { add(it.id) }
+                    chapterMap.forEach { (id, list) ->
+                        if (list.any { it.content.isNotBlank() || it.pageUrls.isNotEmpty() }) add(id)
+                    }
+                }.toList()
+            }
+
+        override suspend fun clearStoryContent(storyId: String) {
+            stories.value = stories.value.toMutableMap().apply {
+                this[storyId]?.let { put(storyId, it.copy(content = "")) }
+            }
+        }
+
+        override suspend fun deleteStory(storyId: String) {
+            stories.value = stories.value.toMutableMap().apply { remove(storyId) }
+            deleteChapters(storyId)
+        }
+
+        override suspend fun deleteStoriesByOwner(ownerId: String) {
+            val removedIds = stories.value.values.filter { it.ownerUserId == ownerId }.map(StoryEntity::id)
+            stories.value = stories.value.toMutableMap().apply {
+                removedIds.forEach { remove(it) }
+            }
+            removedIds.forEach { deleteChapters(it) }
+        }
+
+        override suspend fun deleteShelfStatesForStory(storyId: String) {
+            shelves.value = shelves.value.filterKeys { (_, id) -> id != storyId }
+        }
+
+        override suspend fun deleteShelfStatesForOwner(ownerId: String) {
+            shelves.value = shelves.value.filterKeys { (owner, _) -> owner != ownerId }
         }
     }
 

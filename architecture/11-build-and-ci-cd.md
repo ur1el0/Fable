@@ -49,9 +49,10 @@ Room dependencies provide their generated database keep rules through their cons
 
 ## 3. GitHub Actions Continuous Integration (CI)
 
-The Android CI workflow lives at `.github/workflows/ci.yml`. It runs for pull requests targeting `main`, pushes to `main`, and manual dispatches. On an Ubuntu 24.04 runner with Java 17 and Gradle dependency caching, it:
+The Android CI workflow lives at `.github/workflows/ci.yml`. It runs for pull requests, pushes to `main`, and manual dispatches. On an Ubuntu 24.04 runner with Java 17 and Gradle dependency caching, it:
 
 - Runs `:app:testDebugUnitTest` and `:app:lintDebug`.
-- Builds the debug APK and compiles Android-test Kotlin sources. Instrumentation tests are not run because this workflow does not start an emulator.
+- Builds the debug APK and compiles Android-test Kotlin sources.
+- Runs `:app:connectedDebugAndroidTest` on an API 36 Google Android Test Device emulator with animations disabled.
 - Builds the release APK with a reserved HTTPS URL, so release configuration is checked without requiring a secret or contacting a live backend.
 
