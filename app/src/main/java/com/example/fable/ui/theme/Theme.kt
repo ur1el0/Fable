@@ -8,16 +8,16 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 
 private val DarkColorScheme = darkColorScheme(
-    primary = Color(0xFF9AA8FF),
-    secondary = Color(0xFFB8C3D8),
-    tertiary = Color(0xFFFFA184),
+    primary = FableDarkPrimary,
+    secondary = FableSecondary,
+    tertiary = FableDarkAccent,
     background = FableDarkBackground,
     surface = FableDarkSurface,
     surfaceVariant = FableDarkSurfaceVariant,
     onBackground = FableDarkText,
     onSurface = FableDarkText,
     onSurfaceVariant = FableDarkMuted,
-    outline = Color(0xFF454D5A)
+    outline = FableDarkBorder
 )
 
 private val LightColorScheme = lightColorScheme(

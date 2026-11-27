@@ -1,6 +1,9 @@
 package com.example.fable.ui.screens
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -15,15 +18,17 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -78,8 +83,21 @@ fun ExploreScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         item {
-            Text("DISCOVERY", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-            Text("Explore", style = MaterialTheme.typography.displaySmall)
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    "CURATED CATALOG",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.4.sp,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Text(
+                    "Explore",
+                    style = MaterialTheme.typography.displaySmall,
+                    fontFamily = FontFamily.Serif,
+                    fontWeight = FontWeight.Bold
+                )
+            }
         }
         item {
             OutlinedTextField(
@@ -92,53 +110,101 @@ fun ExploreScreen(
                 singleLine = true,
                 leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
                 placeholder = { Text("Stories, authors, genres") },
-                shape = MaterialTheme.shapes.small
+                shape = RoundedCornerShape(14.dp)
             )
         }
         item {
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(StoryCatalog.entries, key = StoryCatalog::name) { catalog ->
-                    FilterChip(
-                        selected = selectedCatalog == catalog,
+                    val active = selectedCatalog == catalog
+                    val label = when (catalog) {
+                        StoryCatalog.FABLE -> "Fable"
+                        StoryCatalog.GUTENBERG -> "Gutenberg"
+                        StoryCatalog.MANGA -> "MangaDex"
+                    }
+                    Surface(
                         onClick = {
                             selectedCatalog = catalog
                             format = "All"
                             onSearchProvider(catalog, query)
                         },
-                        label = {
-                            Text(
-                                when (catalog) {
-                                    StoryCatalog.FABLE -> "Fable"
-                                    StoryCatalog.GUTENBERG -> "Gutenberg"
-                                    StoryCatalog.MANGA -> "MangaDex"
-                                }
-                            )
-                        }
-                    )
+                        shape = CircleShape,
+                        color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
+                    ) {
+                        Text(
+                            label,
+                            fontSize = 13.sp,
+                            fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
+                            color = if (active) Color.White else MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                        )
+                    }
                 }
             }
         }
         if (selectedCatalog == StoryCatalog.FABLE) item {
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(listOf("All", "PROSE", "MANGA")) { option ->
-                    FilterChip(selected = format == option, onClick = { format = option }, label = { Text(option.lowercase().replaceFirstChar(Char::uppercase)) })
+                    val active = format == option
+                    Surface(
+                        onClick = { format = option },
+                        shape = CircleShape,
+                        color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
+                    ) {
+                        Text(
+                            option.lowercase().replaceFirstChar(Char::uppercase),
+                            fontSize = 13.sp,
+                            fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
+                            color = if (active) Color.White else MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                        )
+                    }
                 }
             }
         }
 
         if (genres.isNotEmpty()) {
             item { SectionTitle("Popular genres") }
-            item {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(genres, key = GenreCategory::id) { genre ->
-                        FilterChip(
-                            selected = false,
+            val genreRows = genres.take(6).chunked(2)
+            items(genreRows) { rowGenres ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    rowGenres.forEach { genre ->
+                        Surface(
                             onClick = {
                                 query = genre.name
                                 if (selectedCatalog != StoryCatalog.FABLE) onSearchProvider(selectedCatalog, genre.name)
                             },
-                            label = { Text(genre.name) }
-                        )
+                            shape = RoundedCornerShape(16.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(120.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(
+                                        Brush.linearGradient(
+                                            listOf(Color(0xFF1E293B), Color(0xFF3B59F6))
+                                        )
+                                    )
+                                    .padding(14.dp),
+                                contentAlignment = Alignment.BottomStart
+                            ) {
+                                Text(
+                                    genre.name,
+                                    fontFamily = FontFamily.Serif,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 17.sp,
+                                    color = Color.White
+                                )
+                            }
+                        }
+                    }
+                    if (rowGenres.size == 1) {
+                        Spacer(modifier = Modifier.weight(1f))
                     }
                 }
             }
@@ -149,11 +215,14 @@ fun ExploreScreen(
             item {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
                     items(writers, key = Writer::id) { writer ->
-                        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(76.dp)) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(84.dp)) {
                             Surface(
+                                onClick = { query = writer.name },
                                 shape = CircleShape,
-                                color = MaterialTheme.colorScheme.surfaceVariant,
-                                modifier = Modifier.size(56.dp)
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                                border = BorderStroke(2.dp, MaterialTheme.colorScheme.surface),
+                                shadowElevation = 2.dp,
+                                modifier = Modifier.size(64.dp)
                             ) {
                                 if (!writer.avatarImageUrl.isNullOrBlank()) {
                                     AsyncImage(model = writer.avatarImageUrl, contentDescription = "Portrait of ${writer.name}", modifier = Modifier.clip(CircleShape))
@@ -161,8 +230,8 @@ fun ExploreScreen(
                                     BoxInitials(writer.name)
                                 }
                             }
-                            Spacer(Modifier.height(5.dp))
-                            Text(writer.name, style = MaterialTheme.typography.labelMedium, maxLines = 2)
+                            Spacer(Modifier.height(6.dp))
+                            Text(writer.name, style = MaterialTheme.typography.labelMedium, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, maxLines = 2)
                             Text("${writer.storyCount} stories", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
