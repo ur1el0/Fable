@@ -181,18 +181,18 @@ private fun PublishedStoryRow(story: Story, onClick: () -> Unit) {
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(14.dp))
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(8.dp),
+        shape = RoundedCornerShape(14.dp),
         color = MaterialTheme.colorScheme.surface,
-        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.48f))
+        border = androidx.compose.foundation.BorderStroke(0.8.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.7f))
     ) {
-        Row(modifier = Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             StoryCover(story, Modifier.size(width = 54.dp, height = 74.dp))
             Spacer(Modifier.width(12.dp))
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(story.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Text(story.genre, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(story.genre, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                 Text(story.synopsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
         }
@@ -216,33 +216,75 @@ private fun AuthForm(
     onRegister: () -> Unit,
     onForgotPassword: () -> Unit
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(if (isRegistration) "Create account" else "Sign in", style = MaterialTheme.typography.headlineMedium)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(selected = !isRegistration, onClick = { onModeChange(false) }, label = { Text("Sign in") })
-            FilterChip(selected = isRegistration, onClick = { onModeChange(true) }, label = { Text("Register") })
-        }
-        if (isRegistration) {
-            OutlinedTextField(name, onNameChange, modifier = Modifier.fillMaxWidth(), label = { Text("Name") }, singleLine = true)
-            OutlinedTextField(handle, onHandleChange, modifier = Modifier.fillMaxWidth(), label = { Text("Handle") }, singleLine = true)
-        }
-        OutlinedTextField(email, onEmailChange, modifier = Modifier.fillMaxWidth(), label = { Text("Email") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email))
-        OutlinedTextField(
-            password,
-            onPasswordChange,
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("Password") },
-            supportingText = if (isRegistration) ({ Text("At least 12 characters") }) else null,
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
-        )
-        Button(
-            onClick = if (isRegistration) onRegister else onSignIn,
-            enabled = !isBusy,
-            modifier = Modifier.fillMaxWidth()
-        ) { Text(if (isRegistration) "Create account" else "Sign in") }
-        if (!isRegistration) {
-            TextButton(onClick = onForgotPassword, enabled = !isBusy) { Text("Forgot password?") }
+    Surface(
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = androidx.compose.foundation.BorderStroke(0.8.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.8f)),
+        shadowElevation = 2.dp,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                if (isRegistration) "Create account" else "Sign in",
+                style = MaterialTheme.typography.headlineMedium,
+                fontFamily = androidx.compose.ui.text.font.FontFamily.Serif
+            )
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    listOf(false to "Sign in", true to "Register").forEach { (reg, label) ->
+                        val active = isRegistration == reg
+                        Surface(
+                            onClick = { onModeChange(reg) },
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (active) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.surfaceVariant,
+                            shadowElevation = if (active) 2.dp else 0.dp,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(
+                                label,
+                                modifier = Modifier.padding(vertical = 8.dp).fillMaxWidth(),
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                style = MaterialTheme.typography.labelLarge,
+                                color = if (active) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+            if (isRegistration) {
+                OutlinedTextField(name, onNameChange, modifier = Modifier.fillMaxWidth(), label = { Text("Name") }, singleLine = true, shape = RoundedCornerShape(12.dp))
+                OutlinedTextField(handle, onHandleChange, modifier = Modifier.fillMaxWidth(), label = { Text("Handle") }, singleLine = true, shape = RoundedCornerShape(12.dp))
+            }
+            OutlinedTextField(email, onEmailChange, modifier = Modifier.fillMaxWidth(), label = { Text("Email") }, singleLine = true, shape = RoundedCornerShape(12.dp), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email))
+            OutlinedTextField(
+                password,
+                onPasswordChange,
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Password") },
+                supportingText = if (isRegistration) ({ Text("At least 12 characters") }) else null,
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
+            )
+            Button(
+                onClick = if (isRegistration) onRegister else onSignIn,
+                enabled = !isBusy,
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) { Text(if (isRegistration) "Create account" else "Sign in", modifier = Modifier.padding(vertical = 4.dp)) }
+            if (!isRegistration) {
+                TextButton(onClick = onForgotPassword, enabled = !isBusy) { Text("Forgot password?") }
+            }
         }
     }
 }

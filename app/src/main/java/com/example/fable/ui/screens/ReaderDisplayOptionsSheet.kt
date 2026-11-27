@@ -95,7 +95,7 @@ fun ReaderDisplayOptionsSheet(
 
             Surface(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(8.dp),
+                shape = RoundedCornerShape(14.dp),
                 color = palette.background,
                 contentColor = palette.foreground,
                 border = BorderStroke(1.dp, palette.foreground.copy(alpha = 0.14f))
@@ -116,19 +116,39 @@ fun ReaderDisplayOptionsSheet(
 
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 SettingLabel("Typography", draft.font.displayLabel())
-                Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    ReaderFont.values().forEach { font ->
-                        FilterChip(
-                            selected = draft.font == font,
-                            onClick = {
-                                draft = draft.copy(font = font)
-                                onPreferencesChanged(draft)
-                            },
-                            label = { Text(font.displayLabel(), fontFamily = font.toFontFamily()) }
-                        )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        ReaderFont.values().forEach { font ->
+                            val selected = draft.font == font
+                            Surface(
+                                onClick = {
+                                    draft = draft.copy(font = font)
+                                    onPreferencesChanged(draft)
+                                },
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (selected) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.surfaceVariant,
+                                shadowElevation = if (selected) 2.dp else 0.dp,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text(
+                                    font.displayLabel(),
+                                    fontFamily = font.toFontFamily(),
+                                    fontSize = 12.sp,
+                                    color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(vertical = 8.dp).fillMaxWidth(),
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                )
+                            }
+                        }
                     }
                 }
             }
