@@ -3,6 +3,8 @@ package com.example.fable.ui.screens
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -14,6 +16,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Tune
@@ -24,6 +28,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -54,26 +59,33 @@ fun ReaderControlsOverlay(
     AnimatedVisibility(
         visible = visible,
         modifier = modifier.fillMaxSize(),
-        enter = fadeIn(tween(durationMillis = 160)),
-        exit = fadeOut(tween(durationMillis = 120))
+        enter = fadeIn(tween(durationMillis = 180)) + slideInVertically(tween(180)) { -it / 16 },
+        exit = fadeOut(tween(durationMillis = 140)) + slideOutVertically(tween(140)) { -it / 16 }
     ) {
         Box(Modifier.fillMaxSize()) {
             Column(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .fillMaxWidth()
-                    .background(palette.background)
+                    .background(palette.background.copy(alpha = 0.94f))
             ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
-                        Icon(
-                            Icons.AutoMirrored.Outlined.ArrowBack,
-                            contentDescription = "Back to story",
-                            tint = palette.foreground
-                        )
+                    Surface(
+                        onClick = onBack,
+                        shape = CircleShape,
+                        color = palette.foreground.copy(alpha = 0.08f)
+                    ) {
+                        Box(modifier = Modifier.size(40.dp), contentAlignment = Alignment.Center) {
+                            Icon(
+                                Icons.AutoMirrored.Outlined.ArrowBack,
+                                contentDescription = "Back to story",
+                                tint = palette.foreground
+                            )
+                        }
                     }
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
@@ -85,7 +97,7 @@ fun ReaderControlsOverlay(
                         Text(
                             chapter?.title ?: "Chapter $chapterNumber",
                             style = MaterialTheme.typography.labelMedium,
-                            color = palette.foreground.copy(alpha = 0.84f),
+                            color = palette.foreground.copy(alpha = 0.78f),
                             maxLines = 1
                         )
                     }
@@ -95,15 +107,21 @@ fun ReaderControlsOverlay(
                         style = MaterialTheme.typography.labelMedium,
                         color = palette.foreground
                     )
-                    IconButton(onClick = onDisplayOptions, modifier = Modifier.size(48.dp)) {
-                        Icon(Icons.Outlined.Tune, contentDescription = "Display options", tint = palette.foreground)
+                    Surface(
+                        onClick = onDisplayOptions,
+                        shape = CircleShape,
+                        color = palette.foreground.copy(alpha = 0.08f)
+                    ) {
+                        Box(modifier = Modifier.size(40.dp), contentAlignment = Alignment.Center) {
+                            Icon(Icons.Outlined.Tune, contentDescription = "Display options", tint = palette.foreground)
+                        }
                     }
                 }
 
                 LinearProgressIndicator(
                     progress = { story.progressPercent.coerceIn(0, 100) / 100f },
                     modifier = Modifier.fillMaxWidth(),
-                    color = FableAccent,
+                    color = MaterialTheme.colorScheme.primary,
                     trackColor = palette.foreground.copy(alpha = 0.12f)
                 )
                 if (errorMessage != null) {
@@ -116,32 +134,43 @@ fun ReaderControlsOverlay(
                 }
             }
 
-            Row(
+            Surface(
+                shape = RoundedCornerShape(30.dp),
+                color = palette.background.copy(alpha = 0.94f),
+                border = BorderStroke(0.8.dp, palette.foreground.copy(alpha = 0.14f)),
+                shadowElevation = 6.dp,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .background(palette.background)
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    .padding(horizontal = 16.dp, vertical = 14.dp)
             ) {
-                OutlinedButton(
-                    onClick = onPreviousChapter,
-                    enabled = canGoToPreviousChapter,
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = palette.foreground),
-                    border = BorderStroke(1.dp, palette.foreground.copy(alpha = 0.38f)),
-                    modifier = Modifier.weight(1f)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Text("Previous")
-                }
-                Button(
-                    onClick = if (hasNextChapter) onNextChapter else onFinish,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = palette.foreground,
-                        contentColor = palette.background
-                    ),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text(if (hasNextChapter) "Next chapter" else "Finish")
+                    OutlinedButton(
+                        onClick = onPreviousChapter,
+                        enabled = canGoToPreviousChapter,
+                        shape = CircleShape,
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = palette.foreground),
+                        border = BorderStroke(1.dp, palette.foreground.copy(alpha = 0.30f)),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Previous")
+                    }
+                    Button(
+                        onClick = if (hasNextChapter) onNextChapter else onFinish,
+                        shape = CircleShape,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary
+                        ),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(if (hasNextChapter) "Next chapter" else "Finish")
+                    }
                 }
             }
         }
